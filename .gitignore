@@ -41,3 +41,7 @@ pgdata/
 
 # Redis snapshots
 *.rdb
+
+# VPS
+backups/
+.admin-password
