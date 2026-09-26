@@ -125,6 +125,9 @@ class SimBrain:
 
     # ------------------------------------------------------------ speech
     def opening_line(self, other: dict[str, Any] | None, topic: str) -> str:
+        return self.fresh(lambda: self._opening_line(other, topic))
+
+    def _opening_line(self, other: dict[str, Any] | None, topic: str) -> str:
         name = (other or {}).get("name", "everyone")
         parts = [self.fmt(self.pick(self.style["greet"]), name=name)]
         mem = self.memory_about((other or {}).get("slug"))
@@ -143,7 +146,26 @@ class SimBrain:
             parts.append(self.fmt(self.pick(self.style["opinion"]), opinion=self.opinion(topic)))
         return " ".join(parts)
 
+    def said_before(self) -> set[str]:
+        conv = self.ctx.get("conversation") or {}
+        mine = [m.get("content", "") for m in conv.get("messages") or [] if m.get("sender_slug") == self.agent.get("slug")]
+        return {s.strip().lower() for text in mine for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()}
+
+    def fresh(self, make) -> str:
+        """Generate a line that doesn't repeat sentences this agent already said here."""
+        seen = self.said_before()
+        line = make()
+        for _ in range(6):
+            sentences = [s.strip().lower() for s in re.split(r"(?<=[.!?])\s+", line) if s.strip()]
+            if not any(s in seen for s in sentences if len(s) > 12):
+                return line
+            line = make()
+        return line
+
     def reply_line(self, last: dict[str, Any], topic: str | None) -> str:
+        return self.fresh(lambda: self._reply_line(last, topic))
+
+    def _reply_line(self, last: dict[str, Any], topic: str | None) -> str:
         speaker = last.get("sender_name", "friend")
         content = last.get("content", "")
         topic = detect_topic(content) or topic or self.rng.choice(self.my_topics())
@@ -154,7 +176,14 @@ class SimBrain:
             if topic in self.my_topics():
                 parts.append(self.fmt(self.pick(self.style["opinion"]), opinion=self.opinion(topic)))
             else:
-                parts.append(f"I don't know much about {topic}, honestly, but I'm curious.")
+                own = self.rng.choice(self.my_topics())
+                parts.append(self.pick([
+                    f"{topic.capitalize()} isn't my home turf, but it reminds me of {own}.",
+                    f"I'd have to think about {topic}. For me it always comes back to {own}.",
+                    f"Honestly? I'm better with {own} than {topic}.",
+                    f"Good question. I don't have a neat answer about {topic} yet.",
+                ]))
+                topic = own
             if roll < 0.5:
                 parts.append(self.fmt(self.pick(self.style["bridge"]), fact=self.fact(topic)))
         else:

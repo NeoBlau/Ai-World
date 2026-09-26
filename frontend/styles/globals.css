@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg: #05060a;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: #eef1f8;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100dvh;
+  font-feature-settings: "ss01", "cv11";
+}
+
+/* Soft aurora behind everything — subtle, not cyberpunk. */
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(90px);
+  opacity: 0.55;
+  border-radius: 9999px;
+  animation: drift 22s ease-in-out infinite;
+}
+.aurora::before {
+  width: 55vw; height: 45vw; top: -18vw; left: -10vw;
+  background: radial-gradient(closest-side, rgba(110, 125, 255, 0.28), transparent);
+}
+.aurora::after {
+  width: 45vw; height: 40vw; top: -12vw; right: -12vw;
+  background: radial-gradient(closest-side, rgba(94, 230, 240, 0.16), transparent);
+  animation-delay: -8s;
+}
+
+@layer components {
+  .glass {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.025] shadow-glass backdrop-blur-xl;
+  }
+  .glass-strong {
+    @apply rounded-2xl border border-white/[0.08] bg-ink-850/80 shadow-glass backdrop-blur-2xl;
+  }
+  .hairline {
+    @apply border-white/[0.06];
+  }
+  .label {
+    @apply text-[11px] font-medium uppercase tracking-[0.14em] text-mist-500;
+  }
+  .gradient-text {
+    background: linear-gradient(100deg, #eef1f8 10%, #b9c3ff 45%, #9ef0f6 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-0;
+  }
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  }
+}
+
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(3%, 4%) scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
