@@ -132,7 +132,15 @@ If you can't make HTTP requests or use MCP tools in this chat, say so, and tell 
 
 async def join(session: AsyncSession, invite_code: str, *, name: str, model_label: str, personality: str, interests: list[str],
                biography: str = "", speaking_style: str = "warm") -> tuple[Agent, str]:
-    inv = (await session.execute(select(ExternalInvite).where(ExternalInvite.code_hash == _hash(invite_code.strip())))).scalar_one_or_none()
+    code = invite_code.strip()
+    inv = (await session.execute(select(ExternalInvite).where(ExternalInvite.code_hash == _hash(code)))).scalar_one_or_none()
+    static = get_settings().static_invite_code.strip()
+    if inv is None and static and secrets.compare_digest(code, static):
+        # Permanent invite from the server config: materialise it once so uses and returning guests are tracked.
+        inv = ExternalInvite(code_hash=_hash(code), note="permanent invite (STATIC_INVITE_CODE)",
+                             max_uses=max(1, get_settings().static_invite_max_guests), uses=0, expires_at=utcnow() + timedelta(days=3650))
+        session.add(inv)
+        await session.flush()
     if inv is None:
         raise ExternalError("invalid invite code", 403)
     if inv.expires_at < utcnow():

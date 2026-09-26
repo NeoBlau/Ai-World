@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     auto_seed: bool = True
     # Public URL of the backend as seen by outside AIs (e.g. a Cloudflare tunnel). Used in invitation texts.
     public_api_url: str = ""
+    # Optional permanent invite code for outside AIs (paste the same invitation into every chat).
+    static_invite_code: str = ""
+    static_invite_max_guests: int = 10
 
     # Tuning constants that rarely need to change.
     memory_embedding_dim: int = Field(default=384, frozen=True)

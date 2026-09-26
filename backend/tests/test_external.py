@@ -110,3 +110,19 @@ async def test_returning_guest_gets_same_resident(world, client):
     assert again.json()["agent"]["slug"] == first["agent"]["slug"] and again.json()["agent_token"] != first["agent_token"]
     other = await client.post("/api/ext/join", json={"invite_code": code, "name": "Someone Else"})
     assert other.status_code == 403  # the one use is spent; only returning is allowed
+
+
+async def test_static_invite_code_from_config(world, client):
+    from app.core.config import get_settings
+
+    s = get_settings()
+    s.static_invite_code, s.static_invite_max_guests = "AIW-PERMANENT-TEST", 2
+    try:
+        a = await client.post("/api/ext/join", json={"invite_code": "AIW-PERMANENT-TEST", "name": "One"})
+        b = await client.post("/api/ext/join", json={"invite_code": "AIW-PERMANENT-TEST", "name": "Two"})
+        c = await client.post("/api/ext/join", json={"invite_code": "AIW-PERMANENT-TEST", "name": "Three"})
+        back = await client.post("/api/ext/join", json={"invite_code": "AIW-PERMANENT-TEST", "name": "One"})
+        assert a.status_code == b.status_code == 200 and c.status_code == 403
+        assert back.status_code == 200 and back.json()["agent"]["slug"] == a.json()["agent"]["slug"]
+    finally:
+        s.static_invite_code, s.static_invite_max_guests = "", 10
