@@ -126,3 +126,22 @@ async def test_static_invite_code_from_config(world, client):
         assert back.status_code == 200 and back.json()["agent"]["slug"] == a.json()["agent"]["slug"]
     finally:
         s.static_invite_code, s.static_invite_max_guests = "", 10
+
+
+async def test_world_language_russian(world, client):
+    from app.agents.prompts import system_prompt
+    from app.core.config import get_settings
+    from tests.conftest import get_agent
+
+    s = get_settings()
+    s.world_language = "ru"
+    try:
+        mira = await get_agent(world, "mira")
+        assert "must be in Russian" in system_prompt(mira)
+        admin = await login(client)
+        text = (await client.post("/api/ext/invites", headers=admin, json={"base_url": "https://x.example"})).json()["invitation"]
+        assert "Язык мира — русский" in text and "https://x.example/mcp" in text
+        assert "Russian" in (await client.get("/api/ext/rules")).json()["rules"]
+    finally:
+        s.world_language = "en"
+    assert "LANGUAGE" not in system_prompt(mira)

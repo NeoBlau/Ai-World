@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     # talk rate limit, energy blocking, the "think only when salient" gate, short messages).
     # The security sandbox (whitelisted world actions, no shell/files/network/secrets) always stays.
     research_mode: bool = False
+    # Language residents speak inside the world: "en" or "ru" (any language name also works, e.g. "German").
+    world_language: str = "en"
 
     # --- Scheduler / simulation ---------------------------------------
     scheduler_tick_seconds: float = 1.0
@@ -88,6 +90,15 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_chain(cls, v: str) -> str:
         return ",".join(p.strip().lower() for p in v.split(",") if p.strip())
+
+    @property
+    def language_name(self) -> str:
+        code = self.world_language.strip().lower()
+        return {"en": "English", "ru": "Russian", "de": "German", "es": "Spanish", "fr": "French", "uk": "Ukrainian"}.get(code, self.world_language.strip() or "English")
+
+    @property
+    def is_russian(self) -> bool:
+        return self.language_name == "Russian"
 
     @property
     def max_message_chars(self) -> int:

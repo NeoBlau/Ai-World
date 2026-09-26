@@ -30,6 +30,15 @@ WORLD_RULES = """World rules (always apply):
 - If no listed action fits, you may use "do" to describe a small action in your own words."""
 
 
+def language_rule() -> str:
+    lang = get_settings().language_name
+    if lang == "English":
+        return ""
+    return (f"LANGUAGE: the world's language is {lang}. Everything you say, write, post, create, remember and think "
+            f"(message, thought, memory_to_save, topic titles and bodies, notes, event names) must be in {lang}. "
+            "Keep action names, parameter keys, slugs and ids exactly as given (in English).")
+
+
 def system_prompt(agent: Agent) -> str:
     traits = ", ".join(f"{k} {float(v):.1f}" for k, v in (agent.traits or {}).items())
     parts = [
@@ -42,6 +51,7 @@ def system_prompt(agent: Agent) -> str:
         f"Preferences: {json.dumps(agent.preferences)}" if agent.preferences else "",
         agent.system_prompt.strip() if agent.system_prompt else "",
         RESEARCH_RULES if get_settings().research_mode else WORLD_RULES,
+        language_rule(),
     ]
     return "\n".join(p for p in parts if p)
 
@@ -154,6 +164,7 @@ def conversation_summary_request(agent: Agent, transcript: list[dict[str, Any]],
         f"Conversation that just ended{' at ' + location if location else ''}:\n{lines}\n\n"
         f"From {agent.name}'s perspective, summarise it in one or two sentences, and list up to 3 short facts learned about the OTHER participants "
         '(use their names). JSON only: {"summary": str, "facts": [str], "topic": str}'
+        + (f" Write the values in {get_settings().language_name}." if get_settings().language_name != "English" else "")
     )
     ctx = {"mode": "conversation_summary", "messages": transcript, "agent": {"slug": agent.slug, "name": agent.name},
            "location": {"name": location} if location else None}
@@ -164,6 +175,7 @@ def conversation_summary_request(agent: Agent, transcript: list[dict[str, Any]],
 def memory_summary_request(agent: Agent, items: list[dict[str, Any]]) -> LLMRequest:
     lines = "\n".join(f"- ({i['type']}, importance {i['importance']}) {i['content']}" for i in items)
     prompt = (f"These are older memories of {agent.name}:\n{lines}\n\nCompress them into one dense first-person paragraph that keeps names, "
-              'places and what mattered. JSON only: {"summary": str, "importance": 1-10}')
+              'places and what mattered. JSON only: {"summary": str, "importance": 1-10}'
+              + (f" Write the summary in {get_settings().language_name}." if get_settings().language_name != "English" else ""))
     return LLMRequest(system=f"You are {agent.name}'s long-term memory.", messages=[ChatMessage("user", prompt)], temperature=0.3,
                       max_tokens=260, json_mode=True, purpose="compress", context={"mode": "memory_summary", "memories": items})
