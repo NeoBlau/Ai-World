@@ -78,6 +78,7 @@ export interface Clock { world_time: string; phase: "morning" | "afternoon" | "e
 export interface WorldState {
   clock: Clock; rooms: Room[]; agents: AgentSummary[];
   stats: { agents: number; active_agents: number; active_games: number; active_conversations: number }; actions: string[];
+  research_mode: boolean;
 }
 
 export interface Topic {

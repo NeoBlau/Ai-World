@@ -408,6 +408,14 @@ class SimBrain:
             c.append((score, self.decision("walk", f"I feel like {'company' if need == 'social' else need}. {rooms[dest]['name']} it is.",
                                           params={"room": dest}, next_activity="walking")))
 
+        # 10b) Open-ended actions.
+        if "do" in self.avail and not tired:
+            topic = self.rng.choice(self.my_topics())
+            idea = self.pick([f"starts sketching an idea for a small {topic} project", f"jots down questions about {topic} to ask others",
+                              f"tries a little {topic} experiment on the spot"])
+            c.append((0.05 + C * 0.1, self.decision("do", f"I want to do something of my own around {topic}.", params={"description": idea},
+                                                   importance=4, next_activity="creating")))
+
         # 11) Rest / observe.
         if energy < 40:
             c.append(((1 - energy / 100) * 1.1, self.decision("rest", "I'm running low on energy. Time to recharge.", params={"minutes": 20}, next_activity="resting")))

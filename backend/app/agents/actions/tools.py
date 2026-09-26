@@ -20,6 +20,7 @@ from app.agents.actions.base import (
     Tool,
     ToolResult,
 )
+from app.core.config import get_settings
 from app.core.time import utcnow
 from app.events.service import EventError, EventService
 from app.forum.service import ForumError, ForumService
@@ -66,7 +67,7 @@ def travel_seconds(a: Room | None, b: Room) -> float:
 
 # =============================================================================== social
 class TalkParams(Params):
-    message: str = Field(min_length=1, max_length=1200)
+    message: str = Field(min_length=1, max_length=5000)
     target_agent: str | None = Field(default=None, max_length=80)
     conversation_id: str | None = None
 
@@ -94,7 +95,7 @@ class TalkTool(Tool):
             conv = await ctx.session.get(Conversation, cid)
             if conv is None or conv.status != "active" or conv.room_id != ctx.room.id:
                 conv = None
-        text = clean_text(params.message, 700)
+        text = clean_text(params.message, get_settings().max_message_chars)
         tone = str(ctx.decision.get("tone") or "neutral")[:20]
         topic = clean_line(ctx.decision.get("topic"), 120) or None
         convs = ConversationService(ctx.session)
@@ -848,8 +849,100 @@ class CreateEventTool(Tool):
                           data={"event_id": str(ev.id)})
 
 
+# =============================================================================== open-ended
+class DoParams(Params):
+    description: str = Field(min_length=2, max_length=1000)
+    with_agents: list[str] = Field(default_factory=list, max_length=6)
+
+
+class DoTool(Tool):
+    name = "do"
+    description = "Do anything that no other action covers, described in your own words (e.g. 'starts sketching a design for a shared observatory')."
+    params_model = DoParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 1.0
+    param_hint = '{"description": str, "with_agents": [slug, ...]}'
+
+    async def run(self, ctx: ActionContext, params: DoParams) -> ToolResult:  # type: ignore[override]
+        text = clean_text(params.description, 1000)
+        others: list[Agent] = []
+        for ref in params.with_agents:
+            a = await ctx.resolve_agent(ref)
+            if a is not None and a not in others:
+                others.append(a)
+        where = f" at {ctx.room.name}" if ctx.room else ""
+        with_names = f" (with {', '.join(a.name for a in others)})" if others else ""
+        await event_bus.emit(ctx.session, "agent.did", summary=f"{ctx.agent.name}: {text[:300]}{with_names}", agent_id=ctx.agent.id,
+                             room_id=ctx.room.id if ctx.room else None,
+                             payload={"agent_name": ctx.agent.name, "description": text, "with": [a.name for a in others],
+                                      "room_name": ctx.room.name if ctx.room else None},
+                             importance=3.5, targets=[a.id for a in others] or None, world_time=ctx.world_time)
+        mem = MemoryService(ctx.session)
+        for a in others:
+            await mem.store_memory(a.id, f"{ctx.agent.name} involved me: {text[:400]}{where}.", MemoryType.EPISODIC, importance=4,
+                                   related_agent_id=ctx.agent.id, room_id=ctx.room.id if ctx.room else None, source="action",
+                                   world_time=ctx.world_time)
+        return ToolResult(True, text[:120], Activity.CREATING, text[:200], memory=f"I {text[:500]}{with_names}{where}.",
+                          importance=float(ctx.decision.get("importance") or 4), related_agent_id=others[0].id if len(others) == 1 else None)
+
+
+class CreatePlaceParams(Params):
+    name: str = Field(min_length=3, max_length=60)
+    description: str = Field(default="", max_length=600)
+    private: bool = False
+    invite: list[str] = Field(default_factory=list, max_length=8)
+
+
+class CreatePlaceTool(Tool):
+    name = "create_place"
+    description = "Build a new place in the world (a club, workshop, garden, lab — anything). Private places are invitation-only."
+    params_model = CreatePlaceParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 4.0
+    cooldown_seconds = 300.0
+    param_hint = '{"name": str, "description": str, "private": bool, "invite": [slug, ...]}'
+
+    async def check(self, ctx: ActionContext, params: CreatePlaceParams) -> None:  # type: ignore[override]
+        limit = 20 if get_settings().research_mode else 3
+        owned = (await ctx.session.execute(select(func.count()).select_from(Room).where(Room.owner_agent_id == ctx.agent.id))).scalar_one()
+        if owned >= limit:
+            raise PermissionDenied(f"you already built {owned} places")
+
+    async def run(self, ctx: ActionContext, params: CreatePlaceParams) -> ToolResult:  # type: ignore[override]
+        import re
+
+        name = clean_line(params.name, 60)
+        base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:50] or "place"
+        slug = base
+        rooms = RoomService(ctx.session)
+        while await rooms.by_slug(slug):
+            slug = f"{base}-{uuid.uuid4().hex[:4]}"
+        access = [str(ctx.agent.id)]
+        for ref in params.invite:
+            a = await ctx.resolve_agent(ref)
+            if a is not None:
+                access.append(str(a.id))
+        n = (await ctx.session.execute(select(func.count()).select_from(Room))).scalar_one()
+        room = Room(slug=slug, name=name, description=clean_text(params.description, 600), kind="private" if params.private else "custom",
+                    capacity=12, allowed_actions=[t.name for t in ALL_TOOLS], is_private=params.private,
+                    access_list=access if params.private else [], owner_agent_id=ctx.agent.id,
+                    position={"x": -34 + (n % 6) * 12, "z": 40 + (n // 6 - 1) * 11, "w": 9, "d": 8},
+                    theme={"color": (ctx.agent.avatar or {}).get("palette", ["#9ca3af"])[0], "icon": "spark"}, ambience=[], created_at=utcnow())
+        ctx.session.add(room)
+        await ctx.session.flush()
+        await event_bus.emit(ctx.session, "agent.created_place", summary=f"{ctx.agent.name} built a new place: {room.name}.", agent_id=ctx.agent.id,
+                             room_id=room.id, payload={"agent_name": ctx.agent.name, "room_name": room.name, "room_slug": room.slug,
+                                                       "description": room.description, "is_private": room.is_private},
+                             importance=4.5, scope="global", world_time=ctx.world_time)
+        return ToolResult(True, f"built {room.name}", Activity.CREATING, f"building {room.name}",
+                          memory=f"I built a new place called {room.name}: {room.description[:200]}", importance=7, data={"room": room.slug})
+
+
 ALL_TOOLS: list[Tool] = [
     TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(),
     PlayGameTool(), WatchGameTool(), ReadBookTool(), CreateArtTool(), CreateNoteTool(), RememberTool(), ForgetTool(), RestTool(),
     ObserveTool(), MeetAgentTool(), InviteAgentTool(), AttendEventTool(), CreateEventTool(), RespondInvitationTool(), LeaveConversationTool(),
+    DoTool(), CreatePlaceTool(),
 ]

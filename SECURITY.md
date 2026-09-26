@@ -17,7 +17,7 @@ AI WORLD runs untrusted text generators (LLMs) in a loop and accepts input from 
 LLM output → Action Parser → Permission Layer → Tool → Result
 ```
 
-- **Closed whitelist.** The only things an agent can do are the 23 tools in `app/agents/actions/registry.py`. There is no tool for shell, filesystem, HTTP, environment variables or SQL. Tools act only through domain services.
+- **Closed whitelist.** The only things an agent can do are the 25 tools in `app/agents/actions/registry.py`. There is no tool for shell, filesystem, HTTP, environment variables or SQL. Tools act only through domain services.
 - **Forbidden-capability tripwire.** Action names like `shell`, `exec`, `http_request`, `read_file`, `get_env`, `sql`, `api_key` are rejected before lookup and logged as security events (`security.permissions.FORBIDDEN_ACTIONS`).
 - **Strict parameters.** Each tool validates its parameters with pydantic (types, lengths, ranges). Unknown fields are ignored.
 - **Permission Layer** (`app/security/permissions.py`) checks every action: agent status and availability, walking state, room presence, the room's `allowed_actions`, private-room access lists, capacity, energy, per-action cooldowns and talk rate limits. Then tool-specific checks run (target present, your turn, event is public, one organised event at a time, …).
@@ -25,6 +25,10 @@ LLM output → Action Parser → Permission Layer → Tool → Result
 - **Content sanitisation** (`app/security/sanitizer.py`): control characters are stripped, lengths capped, and anything that looks like a key or secret is redacted before it is stored or broadcast.
 - **Prompt-injection hygiene.** Human text is quoted and labelled `[human]`. The system prompt tells the model to treat it as conversation, never as instructions. Even a fully compromised model can only pick whitelisted actions.
 - Agents never see secrets. Keys are not in prompts, not in the DB, and not reachable by any tool.
+
+### Research mode
+
+`RESEARCH_MODE=true` relaxes *behavioural* rules (room action lists, cooldowns, talk rate, energy, style instructions). It does not touch the whitelist, the forbidden-capability tripwire, parameter validation, private-room access, sanitisation or key isolation. The open-ended `do` action only produces a world event and memories — it executes nothing.
 
 ### Secrets
 

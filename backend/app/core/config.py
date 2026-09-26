@@ -50,6 +50,11 @@ class Settings(BaseSettings):
 
     embedding_provider: str = "auto"
 
+    # Research mode: remove behavioural limits (style rules, room action lists, cooldowns,
+    # talk rate limit, energy blocking, the "think only when salient" gate, short messages).
+    # The security sandbox (whitelisted world actions, no shell/files/network/secrets) always stays.
+    research_mode: bool = False
+
     # --- Scheduler / simulation ---------------------------------------
     scheduler_tick_seconds: float = 1.0
     scheduler_concurrency: int = 4
@@ -73,6 +78,10 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_chain(cls, v: str) -> str:
         return ",".join(p.strip().lower() for p in v.split(",") if p.strip())
+
+    @property
+    def max_message_chars(self) -> int:
+        return 4000 if self.research_mode else 700
 
     @property
     def fallback_chain(self) -> list[str]:

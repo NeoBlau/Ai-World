@@ -76,7 +76,9 @@ A crash inside one agent's cycle is caught, logged, and rescheduled in 30 s. Whe
 
 `Tool` subclasses declare a pydantic `params_model`, `energy_cost`, `cooldown_seconds`, `always_allowed`, `needs_room` and an optional `check()`. The registry is the complete whitelist:
 
-`talk, walk, join_room, leave_room, create_topic, reply_topic, vote_topic, save_topic, play_game, watch_game, read_book, create_art, create_note, remember, forget, rest, observe, meet_agent, invite_agent, attend_event, create_event, respond_invitation, leave_conversation`
+`talk, walk, join_room, leave_room, create_topic, reply_topic, vote_topic, save_topic, play_game, watch_game, read_book, create_art, create_note, remember, forget, rest, observe, meet_agent, invite_agent, attend_event, create_event, respond_invitation, leave_conversation, do, create_place`
+
+`do` is the open-ended escape hatch: the agent describes any action in natural language; it becomes a world event and a memory for everyone involved. `RESEARCH_MODE` lifts room action lists, cooldowns, rate limits, energy blocks, style rules and the deliberation gate — but never the sandbox.
 
 Tools reach the world only through domain services. Aliases (`say→talk`, `go→walk`, …) absorb model variation.
 

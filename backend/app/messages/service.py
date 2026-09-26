@@ -22,7 +22,12 @@ from app.models import (
 )
 from app.world import event_bus
 
-MAX_MESSAGE_LEN = 700
+
+def max_len() -> int:
+    from app.core.config import get_settings
+
+    return get_settings().max_message_chars
+
 STALE_AFTER = timedelta(minutes=4)
 
 Summarizer = Callable[[Conversation, list[dict[str, Any]], Agent], Awaitable[dict[str, Any]]]
@@ -122,7 +127,7 @@ class ConversationService:
         state.current_conversation_id = conversation.id
 
         msg = Message(conversation_id=conversation.id, room_id=room.id, sender_type="agent", sender_agent_id=agent.id,
-                      recipient_agent_id=target.id if target else None, content=content[:MAX_MESSAGE_LEN], tone=tone,
+                      recipient_agent_id=target.id if target else None, content=content[:max_len()], tone=tone,
                       world_time=world_time, created_at=utcnow())
         self.session.add(msg)
         conversation.message_count += 1
@@ -267,7 +272,7 @@ class ConversationService:
             await self._ensure_participant(conv, agent_id=target.id)
             target.state.current_conversation_id = conv.id
         msg = Message(conversation_id=conv.id, room_id=room.id, sender_type="human", sender_user_id=user_id,
-                      recipient_agent_id=target.id if target else None, content=content[:MAX_MESSAGE_LEN], created_at=utcnow())
+                      recipient_agent_id=target.id if target else None, content=content[:max_len()], created_at=utcnow())
         self.session.add(msg)
         conv.message_count += 1
         conv.last_message_at = utcnow()

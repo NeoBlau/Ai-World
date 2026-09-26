@@ -25,12 +25,12 @@ class DecisionParseError(ValueError):
 class Decision(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    thought: str = Field(default="", max_length=1000)
+    thought: str = Field(default="", max_length=3000)
     action: str = Field(max_length=60)
     params: dict[str, Any] = Field(default_factory=dict)
-    message: str | None = Field(default=None, max_length=1500)
+    message: str | None = Field(default=None, max_length=5000)
     target_agent: str | None = Field(default=None, max_length=80)
-    memory_to_save: str | None = Field(default=None, max_length=800)
+    memory_to_save: str | None = Field(default=None, max_length=2000)
     importance: float = 3.0
     tone: str | None = Field(default="neutral", max_length=30)
     next_activity: str | None = Field(default=None, max_length=200)

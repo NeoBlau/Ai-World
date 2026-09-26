@@ -50,6 +50,8 @@ services:
     <<: *backend-env
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
@@ -63,6 +65,8 @@ services:
     build: ./backend
     <<: *backend-env
     command: ["python", "-m", "app.scheduler.worker"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets OLLAMA_BASE_URL=http://host.docker.internal:11434 work on Linux too
     depends_on:
       migrate: { condition: service_completed_successfully }
     restart: unless-stopped

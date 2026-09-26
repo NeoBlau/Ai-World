@@ -19,6 +19,7 @@ from app.api.routes.common import (
     rooms_map,
     user_names,
 )
+from app.core.config import get_settings
 from app.core.time import utcnow
 from app.messages.service import ConversationService
 from app.models import (
@@ -70,6 +71,7 @@ async def world_state(session: AsyncSession = Depends(db)) -> dict:
         "stats": {"agents": len(agents), "active_agents": sum(1 for a in agents if a.status == AgentStatus.ACTIVE),
                   "active_games": live_games, "active_conversations": active_convs},
         "actions": sorted(REGISTRY),
+        "research_mode": get_settings().research_mode,
     }
 
 

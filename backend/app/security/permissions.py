@@ -15,6 +15,7 @@ from app.agents.actions.base import (
     SecurityViolation,
     Tool,
 )
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models import Activity, AgentStatus, Availability
 from app.security.rate_limit import cooldown_active, hit
@@ -39,6 +40,7 @@ def is_forbidden(action_name: str | None) -> bool:
 
 async def authorize(ctx: ActionContext, tool: Tool, params: Params) -> None:
     agent, state = ctx.agent, ctx.state
+    research = get_settings().research_mode
     if agent.status != AgentStatus.ACTIVE and not ctx.human_initiated:
         raise PermissionDenied(f"agent is {agent.status}")
     if state.availability == Availability.TEMPORARILY_UNAVAILABLE and not ctx.human_initiated:
@@ -47,14 +49,16 @@ async def authorize(ctx: ActionContext, tool: Tool, params: Params) -> None:
         raise PermissionDenied("you are walking between places")
     if tool.needs_room and ctx.room is None:
         raise PermissionDenied("you need to be in a room for that")
-    if ctx.room is not None and not tool.always_allowed and tool.name not in (ctx.room.allowed_actions or []):
-        raise PermissionDenied(f"'{tool.name}' is not possible in {ctx.room.name}")
-    if tool.energy_cost > 0 and state.energy < tool.energy_cost + 2 and tool.name not in ("rest", "observe"):
-        raise PermissionDenied("too tired for that — rest first")
-    if tool.cooldown_seconds and await cooldown_active(f"{agent.id}:{tool.name}"):
-        raise PermissionDenied(f"'{tool.name}' is on cooldown")
-    if tool.name == "talk" and not await hit(f"talk:{agent.id}", MAX_TALK_PER_MINUTE, 60):
-        raise PermissionDenied("speaking too fast — slow down")
+    if not research:
+        # Behavioural rules of the default world; research mode lifts them.
+        if ctx.room is not None and not tool.always_allowed and tool.name not in (ctx.room.allowed_actions or []):
+            raise PermissionDenied(f"'{tool.name}' is not possible in {ctx.room.name}")
+        if tool.energy_cost > 0 and state.energy < tool.energy_cost + 2 and tool.name not in ("rest", "observe"):
+            raise PermissionDenied("too tired for that — rest first")
+        if tool.cooldown_seconds and await cooldown_active(f"{agent.id}:{tool.name}"):
+            raise PermissionDenied(f"'{tool.name}' is on cooldown")
+        if tool.name == "talk" and not await hit(f"talk:{agent.id}", MAX_TALK_PER_MINUTE, 60):
+            raise PermissionDenied("speaking too fast — slow down")
     await tool.check(ctx, params)
 
 

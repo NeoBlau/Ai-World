@@ -43,7 +43,7 @@ EVENT_TYPES = {
     "agent.attending_event", "agent.left_event", "agent.invited", "invitation.responded", "agent.created_art",
     "agent.created_note", "agent.read_book", "agent.resting", "agent.observing", "agent.remembered", "agent.forgot",
     "agent.status_changed", "agent.unavailable", "agent.recovered", "agent.created", "agent.thinking", "human.message",
-    "human.entered_room", "human.created_topic", "human.created_event", "agent.dm_reply", "room.created", "world.paused", "world.resumed",
+    "human.entered_room", "human.created_topic", "human.created_event", "agent.dm_reply", "room.created", "world.paused", "world.resumed", "agent.did", "agent.created_place",
 }
 
 

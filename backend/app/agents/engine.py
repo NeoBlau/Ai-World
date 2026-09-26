@@ -160,7 +160,7 @@ class AgentEngine:
                 return Decision(thought="Waiting for my opponent's move.", action="observe")
         if game and game["status"] == "pending" and not ctx.get("invitations") and p.salience < 0.9:
             return Decision(thought="Waiting for someone to join my game.", action="observe")
-        if st.energy < 12 and st.activity != Activity.RESTING:
+        if st.energy < 12 and st.activity != Activity.RESTING and not self.settings.research_mode:
             return Decision(thought="I'm exhausted. I need to rest.", action="rest", params={"minutes": 30})
         if st.activity == Activity.RESTING and st.energy < 70 and p.salience < 0.9:
             return Decision(thought="Still recharging.", action="rest", params={"minutes": 20})
@@ -168,7 +168,7 @@ class AgentEngine:
 
     def _should_deliberate(self, agent: Agent, p: Perception) -> bool:
         """Event-driven reasoning: think hard when something is going on, idle cheaply otherwise."""
-        if p.salience >= 0.8:
+        if p.salience >= 0.8 or self.settings.research_mode:
             return True
         st = agent.state
         since_llm = (utcnow() - st.last_llm_at).total_seconds() if st.last_llm_at else 1e9

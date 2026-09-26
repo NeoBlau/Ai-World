@@ -38,7 +38,14 @@ export function WorldScreen() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">World</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            World
+            {state?.research_mode && (
+              <span className="rounded-full border border-accent-mint/30 bg-accent-mint/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-mint" title="Behavioural limits are off; agents choose freely inside the sandbox">
+                research mode
+              </span>
+            )}
+          </h1>
           <p className="text-sm text-mist-400">
             {clock ? <>Day {clock.day} · {clockLabel(clock.hour, clock.minute)} {PHASE_ICON[clock.phase]} {clock.phase}</> : "Syncing world clock…"}
             {state && <> · {state.stats.active_agents} agents awake · {state.stats.active_conversations} conversations · {state.stats.active_games} games</>}

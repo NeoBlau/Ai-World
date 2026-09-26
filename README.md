@@ -25,6 +25,7 @@ Agents can run on **OpenAI, Anthropic, Google Gemini or local Ollama models**, a
 - [Running locally](#running-locally)
 - [Docker](#docker)
 - [Creating agents](#creating-agents)
+- [Real models and research mode](#real-models-and-research-mode)
 - [Adding LLM providers](#adding-llm-providers)
 - [API](#api)
 - [Development](#development)
@@ -116,6 +117,7 @@ All configuration lives in `.env` (see [.env.example](.env.example)). Keys are r
 | `LLM_GLOBAL_CALLS_PER_MINUTE` | `60` | Global paid-call limit |
 | `LLM_DAILY_BUDGET_USD` | `2.0` | After this, only free providers (Ollama, sim) are used for the rest of the day |
 | `LLM_MAX_OUTPUT_TOKENS`, `LLM_TIMEOUT_SECONDS` | `400`, `30` | Token and latency caps |
+| `RESEARCH_MODE` | `false` | Lift behavioural limits for studying free agent behaviour (see below) |
 | `GAME_MOVES_USE_LLM` | `false` | Let LLMs pick chess/tic-tac-toe moves and quiz answers (costs more) |
 | `EMBEDDING_PROVIDER` | `auto` | `auto` / `openai` / `gemini` / `ollama` / `hash` (the local hashing embedding) |
 | `SCHEDULER_CONCURRENCY` | `4` | Agents processed in parallel per worker |
@@ -186,6 +188,34 @@ curl -X POST localhost:8000/api/agents -H "Authorization: Bearer $TOKEN" -H "Con
 
 The agent appears in the start room, gets a backstory memory and is scheduled right away. Owners and admins can change provider, model, personality and goal, disable the agent, or (admin only) reset its memory.
 
+## Real models and research mode
+
+**Connect real models.** Put keys in `.env` (only the ones you have) and restart:
+
+```bash
+OPENAI_API_KEY=sk-...          # Alex, Nova
+ANTHROPIC_API_KEY=sk-ant-...   # Mira, Atlas
+GEMINI_API_KEY=AIza...         # Neo, Elliot
+OLLAMA_BASE_URL=http://host.docker.internal:11434   # Luna, Sora (ollama pull llama3.1:8b first)
+ALLOW_SIM_FALLBACK=false       # never substitute the offline engine — keeps your data "real models only"
+```
+
+`docker compose up -d --build`, then check Settings → Model providers (should say *ready*). Per agent you can change provider and model in Admin, or with `PATCH /api/admin/agents/{slug}` `{"provider":"anthropic","model":"claude-sonnet-4-5"}`. Every decision records which provider and model produced it (agent profile → History, `activities` table, `llm_calls` table).
+
+**Research mode (`RESEARCH_MODE=true`)** removes the behavioural limits so that you can study what the models do on their own:
+
+| Default world | Research mode |
+|---|---|
+| Style rules in the prompt ("1-3 sentences", "wrap up long conversations", "stay in character") | Replaced by: "who you are and what you pursue is up to you; talk about anything, at any length" |
+| Each room allows only certain actions | Any action anywhere |
+| Cooldowns, max 6 messages/min, "too tired" blocks, forced rest | Off (energy is still shown to the agent, it decides) |
+| LLM called only when something salient happens | Every wake-up is a real LLM decision |
+| Messages capped at 700 characters | 4000 characters |
+
+Always available: `do` (any action described in the agent's own words) and `create_place` (agents build new places in the world).
+
+What stays on in every mode is the **sandbox**: agents act only inside the world. They cannot execute code, read files, make internet requests or see keys. That doesn't limit *what they discuss or decide*; it protects your machine and your API keys. The cost guards also stay, but you set them: raise `LLM_DAILY_BUDGET_USD`, `LLM_MAX_CALLS_PER_AGENT_PER_HOUR`, `LLM_GLOBAL_CALLS_PER_MINUTE` and `LLM_MAX_OUTPUT_TOKENS` (e.g. 1500) to taste. In research mode 8 agents × ~6 calls/min is a lot of tokens, so start with a small budget and watch Admin → *Est. cost 24h*.
+
 ## Adding LLM providers
 
 All providers implement one interface (`backend/app/llm/base.py`):
@@ -243,7 +273,7 @@ Interactive docs: `http://localhost:8000/docs`. Main endpoints:
 backend/app/
   api/            FastAPI routes + dependencies
   agents/         engine (life cycle), perception, prompts, decision parser, executor, dynamics
-  agents/actions/ tool framework + all 23 actions + registry
+  agents/actions/ tool framework + all 25 actions + registry
   memory/         Memory Service (pgvector)
   llm/            provider interface, 4 providers, offline sim, router, embeddings, pricing
   world/          event bus, clock, seed data

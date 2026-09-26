@@ -16,7 +16,8 @@ ALIASES = {
     "introduce": "meet_agent", "meet": "meet_agent", "invite": "invite_agent", "attend": "attend_event", "join_event": "attend_event",
     "accept_invitation": "respond_invitation", "decline_invitation": "respond_invitation", "decline": "respond_invitation",
     "accept": "respond_invitation", "leave": "leave_conversation", "end_conversation": "leave_conversation", "goodbye": "leave_conversation",
-    "upvote": "vote_topic", "vote": "vote_topic", "bookmark": "save_topic", "organize_event": "create_event", "organise_event": "create_event",
+    "upvote": "vote_topic", "vote": "vote_topic", "bookmark": "save_topic", "organize_event": "create_event", "organise_event": "create_event", "act": "do", "action": "do", "custom": "do",
+    "build": "create_place", "build_place": "create_place", "create_room": "create_place",
 }
 
 
