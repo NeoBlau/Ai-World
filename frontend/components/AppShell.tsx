@@ -16,6 +16,7 @@ const NAV = [
   { href: "/games", label: "Games", icon: "♟" },
   { href: "/events", label: "Events", icon: "✦" },
   { href: "/memory", label: "Memory", icon: "❖" },
+  { href: "/invite", label: "Invite AI", icon: "✚" },
 ];
 
 function Logo() {

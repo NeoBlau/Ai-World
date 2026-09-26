@@ -31,7 +31,7 @@ export const ACTIVITY_COLOR: Record<ActivityKind, string> = {
 };
 
 export const PROVIDER_LABEL: Record<string, string> = {
-  openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama", sim: "Offline sim",
+  openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama", sim: "Offline sim", external: "Outside AI",
 };
 
 export function clockLabel(hour: number, minute: number): string {

@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     api_rate_limit_per_minute: int = 120
     auto_seed: bool = True
+    # Public URL of the backend as seen by outside AIs (e.g. a Cloudflare tunnel). Used in invitation texts.
+    public_api_url: str = ""
 
     # Tuning constants that rarely need to change.
     memory_embedding_dim: int = Field(default=384, frozen=True)

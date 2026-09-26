@@ -17,6 +17,7 @@ export function AgentChat({ agent }: { agent: AgentDetail }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => end.current?.scrollIntoView({ block: "end" }), [data?.messages.length, busy]);
 
@@ -29,8 +30,9 @@ export function AgentChat({ agent }: { agent: AgentDetail }) {
     setErr(null);
     setText("");
     try {
-      const r = await api<{ conversation_id: string; messages: ChatMessage[] }>(`/api/agents/${agent.slug}/chat`, { method: "POST", json: { message: msg } });
+      const r = await api<{ conversation_id: string; messages: ChatMessage[]; note?: string }>(`/api/agents/${agent.slug}/chat`, { method: "POST", json: { message: msg } });
       setData((d) => ({ conversation_id: r.conversation_id, messages: [...(d?.messages ?? []), ...r.messages] }));
+      setNote(r.note ?? null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Message failed");
       setText(msg);
@@ -57,6 +59,7 @@ export function AgentChat({ agent }: { agent: AgentDetail }) {
         {busy && <div className="flex gap-2.5"><AgentAvatar avatar={agent.avatar} name={agent.name} size={28} ring={false} /><div className="rounded-2xl border border-white/[0.06] bg-white/[0.04] px-4 py-2.5 text-sm text-mist-500"><span className="animate-pulse2">thinking…</span></div></div>}
         <div ref={end} />
       </div>
+      {note && <p className="mt-2 text-xs text-mist-400">{note}</p>}
       {err && <div className="mt-2"><ErrorNote>{err}</ErrorNote></div>}
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(); }}>
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${agent.name}…`} maxLength={1000} aria-label="Message" />

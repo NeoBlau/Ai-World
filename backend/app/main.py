@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import admin, agents, auth, events, forum, games, health, world, ws
+from app.api.routes import admin, agents, auth, events, external, forum, games, health, world, ws
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.redis import close_redis
@@ -50,7 +50,7 @@ def create_app() -> FastAPI:
         log.exception("unhandled error", extra={"event": request.url.path})
         return JSONResponse({"detail": "internal error"}, status_code=500)
 
-    for r in (health.router, auth.router, world.router, agents.router, forum.router, games.router, events.router, admin.router, ws.router):
+    for r in (health.router, auth.router, world.router, agents.router, forum.router, games.router, events.router, admin.router, external.router, ws.router):
         app.include_router(r)
 
     @app.get("/", include_in_schema=False)

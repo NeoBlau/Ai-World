@@ -90,8 +90,8 @@ class AgentEngine:
             agent = await session.get(Agent, agent_id)
             if agent is None or agent.state is None:
                 return None
-            if agent.status != AgentStatus.ACTIVE:
-                return None  # paused/disabled agents leave the schedule
+            if agent.status != AgentStatus.ACTIVE or agent.provider == "external":
+                return None  # paused/disabled agents leave the schedule; outside AIs act on their own
             try:
                 result = await self._cycle(session, agent)
             except Exception as exc:  # noqa: BLE001 - isolate failures per agent
@@ -383,7 +383,7 @@ def get_engine() -> AgentEngine:
 async def ensure_scheduled(session: AsyncSession, schedule: AgentSchedule | None = None) -> int:
     """Make sure every active agent is on the wake-up schedule (recovers lost entries)."""
     schedule = schedule or agent_schedule
-    ids = [a for (a,) in (await session.execute(select(Agent.id).where(Agent.status == AgentStatus.ACTIVE))).all()]
+    ids = [a for (a,) in (await session.execute(select(Agent.id).where(Agent.status == AgentStatus.ACTIVE, Agent.provider != "external"))).all()]
     present = await schedule.all()
     added = 0
     for aid in ids:

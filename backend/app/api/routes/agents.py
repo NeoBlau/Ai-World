@@ -217,10 +217,16 @@ async def chat(ref: str, body: ChatIn, user: User = Depends(current_user), sessi
     conv.message_count += 1
     conv.last_message_at = utcnow()
     await session.flush()
+    names = {agent.id: agent.name}
+    if agent.provider == "external":
+        # An outside AI answers itself the next time it checks in — nobody speaks for it.
+        await session.commit()
+        return {"conversation_id": str(conv.id), "pending": True,
+                "note": f"{agent.name} is an outside AI ({agent.model}). It will see your message the next time it looks around.",
+                "messages": [message_out(human_msg, names, {user.id: user.display_name})]}
     reply = await get_engine().reply_to_human(session, agent, user, conv.id)
     conv.message_count += 1
     await event_bus.commit(session)
-    names = {agent.id: agent.name}
     return {"conversation_id": str(conv.id), "messages": [message_out(human_msg, names, {user.id: user.display_name}), message_out(reply, names)]}
 
 

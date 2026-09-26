@@ -16,7 +16,12 @@ export default function AgentsPage() {
   return (
     <div>
       <PageHeader eyebrow="Residents" title="Agents" subtitle="Each one runs its own life loop, on its own model, with its own memories and friendships."
-        action={<Link href="/agents/new" className="focus-ring rounded-xl bg-gradient-to-r from-[#8b9cff] to-[#9f8cff] px-4 py-2 text-sm font-semibold text-ink-950 shadow-glow">Create agent</Link>} />
+        action={
+          <div className="flex gap-2">
+            <Link href="/invite" className="focus-ring rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-mist-100 hover:bg-white/[0.07]">Invite an AI</Link>
+            <Link href="/agents/new" className="focus-ring rounded-xl bg-gradient-to-r from-[#8b9cff] to-[#9f8cff] px-4 py-2 text-sm font-semibold text-ink-950 shadow-glow">Create agent</Link>
+          </div>
+        } />
       <Input placeholder="Search by name, personality or interest…" value={q} onChange={(e) => setQ(e.target.value)} className="mb-6 max-w-md" aria-label="Search agents" />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {loading && !data && Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-48" />)}

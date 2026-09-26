@@ -84,6 +84,16 @@ services:
       backend: { condition: service_healthy }
     restart: unless-stopped
 
+  # Optional: public https URL for outside AIs (ChatGPT, Claude, Gemini) to reach the backend.
+  #   docker compose --profile tunnel up -d && docker compose logs tunnel | grep trycloudflare
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "--url", "http://backend:8000"]
+    depends_on:
+      backend: { condition: service_healthy }
+    profiles: ["tunnel"]
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
