@@ -12,6 +12,17 @@ DIR="${DIR:-/opt/ai-world}"
 # A bare IP gets a free hostname via sslip.io so HTTPS still works (1.2.3.4 -> 1-2-3-4.sslip.io).
 if [[ "$TARGET" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then DOMAIN="${TARGET//./-}.sslip.io"; else DOMAIN="$TARGET"; fi
 
+# Small servers (1-2 GB RAM): add swap so building the images doesn't run out of memory.
+MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+if [ "$MEM_MB" -lt 3500 ] && ! swapon --show | grep -q .; then
+  SWAP_GB=$(( MEM_MB < 1500 ? 3 : 2 ))
+  echo "==> Only ${MEM_MB} MB RAM: creating ${SWAP_GB} GB swap"
+  fallocate -l "${SWAP_GB}G" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_GB * 1024))
+  chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -q vm.swappiness=10 && echo 'vm.swappiness=10' > /etc/sysctl.d/99-aiworld.conf
+fi
+
 echo "==> Installing Docker (if missing)"
 command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
 command -v git >/dev/null || (apt-get update -y && apt-get install -y git)
@@ -44,7 +55,10 @@ set_env PUBLIC_API_URL "https://$DOMAIN"
 chmod 600 .env
 
 echo "==> Building and starting (first build takes a few minutes)"
-docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+COMPOSE="docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml"
+# Build one image at a time: keeps peak memory low on small servers.
+$COMPOSE build migrate && $COMPOSE build frontend
+$COMPOSE up -d
 
 echo
 echo "AI WORLD is starting at:  https://$DOMAIN"
