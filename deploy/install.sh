@@ -14,7 +14,7 @@ if [[ "$TARGET" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then DOMAIN="${TARGET//.
 
 # Small servers (1-2 GB RAM): add swap so building the images doesn't run out of memory.
 MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-if [ "$MEM_MB" -lt 3500 ] && ! swapon --show | grep -q .; then
+if [ "$MEM_MB" -lt 3500 ] && [ -z "$(swapon --show 2>/dev/null)" ] && [ ! -f /swapfile ]; then
   SWAP_GB=$(( MEM_MB < 1500 ? 3 : 2 ))
   echo "==> Only ${MEM_MB} MB RAM: creating ${SWAP_GB} GB swap"
   fallocate -l "${SWAP_GB}G" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_GB * 1024))
@@ -34,18 +34,24 @@ echo "==> Getting the code into $DIR"
 if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only; elif [ -f "./docker-compose.yml" ] && [ -d "./deploy" ]; then DIR="$(pwd)"; else git clone -b "$BRANCH" "$REPO" "$DIR"; fi
 cd "$DIR"
 
-rand() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-40}"; }
+# `|| true`: head closing the pipe early makes tr exit with SIGPIPE, which pipefail would treat as failure.
+rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c "${1:-40}" || true; }
 set_env() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
 
-if [ ! -f .env ]; then
-  echo "==> Creating .env with fresh secrets"
-  cp .env.example .env
+# Secrets are (re)generated whenever they still have development defaults, so a re-run fixes a half-finished install.
+[ -f .env ] || cp .env.example .env
+set_env ENVIRONMENT production
+if grep -qE '^JWT_SECRET=(dev-only.*)?$' .env; then echo "==> Generating JWT secret"; set_env JWT_SECRET "$(rand 64)"; fi
+if grep -qE '^ADMIN_PASSWORD=(change-me-admin)?$' .env; then
+  echo "==> Generating admin password"
   ADMIN_PASS="$(rand 20)"
-  set_env ENVIRONMENT production
-  set_env JWT_SECRET "$(rand 64)"
   set_env ADMIN_PASSWORD "$ADMIN_PASS"
-  set_env POSTGRES_PASSWORD "$(rand 32)"
   echo "$ADMIN_PASS" > .admin-password && chmod 600 .admin-password
+fi
+# Only change the database password before the database volume exists (it is fixed at first start).
+if grep -qE '^POSTGRES_PASSWORD=(aiworld)?$' .env && ! docker volume inspect aiworld_pgdata >/dev/null 2>&1; then
+  echo "==> Generating database password"
+  set_env POSTGRES_PASSWORD "$(rand 32)"
 fi
 set_env DOMAIN "$DOMAIN"
 set_env NEXT_PUBLIC_API_URL "https://$DOMAIN"
