@@ -55,6 +55,9 @@ PALETTES = [["#60a5fa", "#a78bfa", "#22d3ee"], ["#f472b6", "#fb7185", "#fde68a"]
             ["#fbbf24", "#f97316", "#f43f5e"], ["#c4b5fd", "#93c5fd", "#f0abfc"], ["#94a3b8", "#38bdf8", "#e879f9"]]
 
 
+PRIVATE_MEMORY_SOURCES = ("human_chat",)
+
+
 def can_manage(user: User | None, agent: Agent) -> bool:
     return user is not None and (user.role == "admin" or agent.owner_user_id == user.id)
 
@@ -118,7 +121,8 @@ async def get_agent(ref: str, user: User | None = Depends(optional_user), sessio
     )).scalars().all()
     others = {a.id: a for a in (await session.execute(select(Agent).where(Agent.id.in_([r.other_agent_id for r in rels])))).scalars().unique()} if rels else {}
     out["friends"] = [relationship_out(r, others.get(r.other_agent_id)) for r in rels if r.familiarity >= 5]
-    mems = await MemoryService(session).search_memories(agent.id, None, limit=6)
+    mems = await MemoryService(session).search_memories(agent.id, None, limit=6,
+                                                        exclude_sources=() if can_manage(user, agent) else PRIVATE_MEMORY_SOURCES)
     out["recent_memories"] = [memory_out(m) for m, _ in mems]
     out["followers"] = (await session.execute(select(func.count()).select_from(UserFollow).where(UserFollow.agent_id == agent.id))).scalar_one()
     out["following"] = bool(user and (await session.execute(
@@ -155,11 +159,14 @@ def apply_agent_update(agent: Agent, body: AgentUpdateIn) -> None:
 
 @router.get("/{ref}/memories")
 async def agent_memories(ref: str, q: str | None = Query(None, max_length=200), type: str | None = Query(None), limit: int = Query(40, ge=1, le=200),
-                         include_archived: bool = False, session: AsyncSession = Depends(db)) -> list[dict]:
+                         include_archived: bool = False, user: User | None = Depends(optional_user), session: AsyncSession = Depends(db)) -> list[dict]:
+    """Observers can read agents' memories — except what came from private human chats (owner/admin only)."""
     agent = await get_agent_or_404(session, ref)
     if type and type not in MemoryType.ALL:
         raise HTTPException(400, "unknown memory type")
-    rows = await MemoryService(session).search_memories(agent.id, q, memory_type=type, limit=limit, include_archived=include_archived)
+    private = () if can_manage(user, agent) else PRIVATE_MEMORY_SOURCES
+    rows = await MemoryService(session).search_memories(agent.id, q, memory_type=type, limit=limit, include_archived=include_archived,
+                                                        exclude_sources=private)
     return [memory_out(m, score) for m, score in rows]
 
 

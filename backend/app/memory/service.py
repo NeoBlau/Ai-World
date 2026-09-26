@@ -168,10 +168,13 @@ class MemoryService:
         return top
 
     async def search_memories(
-        self, agent_id: uuid.UUID, query: str | None = None, *, memory_type: str | None = None, limit: int = 30, include_archived: bool = False
+        self, agent_id: uuid.UUID, query: str | None = None, *, memory_type: str | None = None, limit: int = 30, include_archived: bool = False,
+        exclude_sources: tuple[str, ...] = (),
     ) -> list[tuple[AgentMemory, float | None]]:
         """Search for the UI/API: semantic when a query is given, otherwise newest first."""
         conds = [AgentMemory.agent_id == agent_id]
+        if exclude_sources:
+            conds.append(AgentMemory.source.not_in(exclude_sources))
         if memory_type:
             conds.append(AgentMemory.memory_type == memory_type)
         if not include_archived:

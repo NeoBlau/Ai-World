@@ -14,7 +14,6 @@ os.environ["ENVIRONMENT"] = "test"
 
 import fakeredis  # noqa: E402
 import httpx  # noqa: E402
-import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 

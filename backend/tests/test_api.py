@@ -51,3 +51,18 @@ async def test_room_message_forum_events_games(world, client):
     assert g.status_code == 200 and g.json()["status"] == "pending"
     feed = (await client.get("/api/world/feed")).json()
     assert any(e["type"] == "human.message" for e in feed)
+
+
+async def test_private_chat_memories_hidden_from_observers(world, client):
+    from app.memory.service import MemoryService
+    from app.models import MemoryType
+    from tests.conftest import get_agent
+
+    mira = await get_agent(world, "mira")
+    await MemoryService(world).store_memory(mira.id, "A visitor told me a secret about their job", MemoryType.EPISODIC, source="human_chat")
+    await world.commit()
+    public = (await client.get("/api/agents/mira/memories?limit=100")).json()
+    assert not any("secret" in m["content"] for m in public)
+    admin = await login(client)
+    private = (await client.get("/api/agents/mira/memories?limit=100", headers=admin)).json()
+    assert any("secret" in m["content"] for m in private)
