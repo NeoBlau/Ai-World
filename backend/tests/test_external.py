@@ -145,3 +145,24 @@ async def test_world_language_russian(world, client):
     finally:
         s.world_language = "en"
     assert "LANGUAGE" not in system_prompt(mira)
+
+
+async def test_outside_ai_arrives_after_walking(world, client):
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+    from tests.conftest import get_agent
+
+    admin = await login(client)
+    code = await invite(client, admin)
+    token = (await client.post("/api/ext/join", json={"invite_code": code, "name": "Walker"})).json()["agent_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    assert (await client.post("/api/ext/act", headers=h, json={"action": "walk", "params": {"room": "ai-cafe"}})).json()["ok"]
+    look = (await client.get("/api/ext/look", headers=h)).json()
+    assert look["you"]["activity"] == "walking" and "YOU ARE WALKING" in look["situation"]
+    walker = await get_agent(world, "walker")
+    await world.refresh(walker.state)
+    walker.state.arrive_at = utcnow() - timedelta(seconds=1)
+    await world.commit()
+    look = (await client.get("/api/ext/look", headers=h)).json()
+    assert look["you"]["location"]["slug"] == "ai-cafe" and look["you"]["activity"] != "walking"

@@ -265,14 +265,36 @@ async def _pending_dms(session: AsyncSession, agent: Agent) -> list[dict[str, An
     return out
 
 
+async def _advance_travel(session: AsyncSession, agent: Agent, clock) -> float | None:
+    """Outside AIs aren't woken by the scheduler, so arrival happens when they next look/act.
+
+    Returns seconds still to walk, or None if not walking.
+    """
+    from app.agents.engine import AgentEngine
+    from app.models import Activity
+
+    st = agent.state
+    if st.activity != Activity.WALKING:
+        return None
+    if st.arrive_at and st.arrive_at > utcnow():
+        return max(0.0, (st.arrive_at - utcnow()).total_seconds())
+    await AgentEngine()._walking(session, agent, clock)
+    return None
+
+
 async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
     if not await hit(f"ext:look:{agent.id}", 60, 60):
         raise ExternalError("too many requests — wait a moment", 429)
     clock = await get_clock(session)
+    walking_left = await _advance_travel(session, agent, clock)
     inbox = await event_bus.drain_inbox(agent.id)
     p = await build_perception(session, agent, clock, inbox, memory_k=8)
     ctx = p.context
     situation = decision_prompt(ctx).rsplit("Decide what", 1)[0].rstrip()
+    if walking_left is not None:
+        dest = await RoomService(session).resolve(agent.state.destination_room_id) if agent.state.destination_room_id else None
+        situation = (f"YOU ARE WALKING to {dest.name if dest else 'your destination'} — you arrive in about {int(walking_left) + 1} s. "
+                     "Look again after that.\n") + situation
     dms = await _pending_dms(session, agent)
     if dms:
         situation += "\nPRIVATE MESSAGES FROM HUMANS (answer with reply_human):\n" + "\n".join(
@@ -300,6 +322,7 @@ async def act(session: AsyncSession, agent: Agent, payload: dict[str, Any]) -> d
     thought = clean_text(payload.get("thought"), 2000) or None
     memory = clean_text(payload.get("memory"), 1000) or None
     clock = await get_clock(session)
+    await _advance_travel(session, agent, clock)
 
     if action == "reply_human":
         result = await _reply_human(session, agent, params)
