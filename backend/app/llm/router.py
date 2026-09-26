@@ -178,6 +178,37 @@ class LLMRouter:
         await pipe.execute()
 
     # ------------------------------------------------------------------ generate
+    def models_for(self, prov: LLMProvider, first: str) -> list[str]:
+        """Models to try within one provider: the requested one, the default, then configured backups."""
+        extra = getattr(self.settings, f"{prov.name}_fallback_models", "") or ""
+        out: list[str] = []
+        for m in [first, prov.default_model, *extra.split(",")]:
+            m = m.strip()
+            if m and m not in out:
+                out.append(m)
+        return out
+
+    async def _generate_with_model_fallback(self, prov: LLMProvider, request: LLMRequest, first: str) -> tuple[LLMResponse, str]:
+        """Overloaded (429/5xx) or retired (404) model -> next model of the same provider."""
+        models = self.models_for(prov, first)
+        last: ProviderError | None = None
+        for i, m in enumerate(models):
+            req = LLMRequest(**{**request.__dict__, "model": m})
+            try:
+                resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
+                if i:
+                    log.info("used backup model", extra={"provider": prov.name, "model": m})
+                return resp, m
+            except ProviderError as exc:
+                last = exc
+                if exc.status in (404, 429, 500, 503) and prov.name not in FREE_PROVIDERS and i + 1 < len(models):
+                    log.warning("model unavailable, trying next", extra={"provider": prov.name, "model": m, "error": str(exc)[:120]})
+                    await asyncio.sleep(0.5)
+                    continue
+                raise
+        assert last is not None
+        raise last
+
     async def generate(
         self,
         request: LLMRequest,
@@ -201,24 +232,9 @@ class LLMRouter:
                 attempts.append(f"{name}: circuit open")
                 continue
             req_model = model if (name == provider and model) else prov.default_model
-            req = LLMRequest(**{**request.__dict__, "model": req_model})
             started = time.perf_counter()
             try:
-                try:
-                    resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
-                except ProviderError as exc:
-                    # The agent's model may have been retired/renamed: retry once with the provider default.
-                    if exc.status in (429, 500, 503) and name not in FREE_PROVIDERS:
-                        # Demand spikes are usually momentary: one short retry before falling back.
-                        await asyncio.sleep(1.5)
-                        resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
-                    elif exc.status == 404 and req_model != prov.default_model:
-                        log.warning("model not found, using provider default", extra={"provider": name, "model": req_model})
-                        req_model = prov.default_model
-                        req = LLMRequest(**{**request.__dict__, "model": req_model})
-                        resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
-                    else:
-                        raise
+                resp, req_model = await self._generate_with_model_fallback(prov, request, req_model)
             except (ProviderError, asyncio.TimeoutError) as exc:
                 err = exc if isinstance(exc, ProviderError) else ProviderError(name, "timeout")
                 latency = int((time.perf_counter() - started) * 1000)

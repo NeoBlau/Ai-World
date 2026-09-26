@@ -143,3 +143,14 @@ async def test_router_retries_transient_overload_once():
     router.persist = lambda rec: _noop()
     resp = await router.generate(REQ, provider="gemini")
     assert resp.text == "ok" and route.call_count == 2
+
+
+@respx.mock
+async def test_router_switches_to_backup_model_when_overloaded():
+    busy = respx.post(url__regex=r".*/models/gemini-3.8-flash:generateContent").mock(return_value=httpx.Response(503, text="high demand"))
+    backup = respx.post(url__regex=r".*/models/gemini-3.6-flash:generateContent").mock(return_value=httpx.Response(200, json={
+        "candidates": [{"content": {"parts": [{"text": "from backup"}]}}]}))
+    router = LLMRouter(settings(openai_api_key="", anthropic_api_key="", ollama_base_url="", llm_fallback_chain="", allow_sim_fallback=False))
+    router.persist = lambda rec: _noop()
+    resp = await router.generate(REQ, provider="gemini")
+    assert busy.called and backup.called and resp.model == "gemini-3.6-flash" and resp.text == "from backup"

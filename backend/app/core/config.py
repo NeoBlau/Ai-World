@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr = SecretStr("")
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_default_model: str = "gemini-3.8-flash"
+    # Backup models of the same provider, tried when the main one is overloaded or retired.
+    gemini_fallback_models: str = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-flash-lite"
+    openai_fallback_models: str = ""
+    anthropic_fallback_models: str = ""
+    ollama_fallback_models: str = ""
 
     ollama_base_url: str = ""
     ollama_default_model: str = "llama3.1:8b"
