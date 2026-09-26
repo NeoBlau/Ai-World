@@ -43,7 +43,7 @@ async def test_anthropic_provider():
 
 @respx.mock
 async def test_gemini_provider_key_in_header_not_url():
-    route = respx.post(url__regex=r".*/models/gemini-2.5-flash:generateContent").mock(return_value=httpx.Response(200, json={
+    route = respx.post(url__regex=r".*/models/gemini-3.8-flash:generateContent").mock(return_value=httpx.Response(200, json={
         "candidates": [{"content": {"parts": [{"text": "ok"}]}}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 1}}))
     resp = await GeminiProvider(settings()).generate(REQ)
     req = route.calls.last.request
@@ -119,3 +119,27 @@ def test_json_extraction_and_decision_parsing():
     assert build_params(d, raw, "walk")["room"] == "library"
     with pytest.raises(DecisionParseError):
         parse_decision("I think I'll just wander around")
+
+
+@respx.mock
+async def test_router_retries_retired_model_with_default():
+    retired = respx.post(url__regex=r".*/models/gemini-old:generateContent").mock(return_value=httpx.Response(404, text="no longer available"))
+    current = respx.post(url__regex=r".*/models/gemini-3.8-flash:generateContent").mock(return_value=httpx.Response(200, json={
+        "candidates": [{"content": {"parts": [{"text": "thinking...", "thought": True}, {"text": "answer"}]}}]}))
+    router = LLMRouter(settings(openai_api_key="", anthropic_api_key="", ollama_base_url="", llm_fallback_chain="", allow_sim_fallback=False))
+    router.persist = lambda rec: _noop()
+    resp = await router.generate(REQ, provider="gemini", model="gemini-old")
+    assert retired.called and current.called
+    assert resp.model == "gemini-3.8-flash" and resp.text == "answer"
+
+
+@respx.mock
+async def test_router_retries_transient_overload_once():
+    route = respx.post(url__regex=r".*generateContent").mock(side_effect=[
+        httpx.Response(503, text="high demand"),
+        httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}),
+    ])
+    router = LLMRouter(settings(openai_api_key="", anthropic_api_key="", ollama_base_url="", llm_fallback_chain="", allow_sim_fallback=False))
+    router.persist = lambda rec: _noop()
+    resp = await router.generate(REQ, provider="gemini")
+    assert resp.text == "ok" and route.call_count == 2

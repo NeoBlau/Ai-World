@@ -204,7 +204,21 @@ class LLMRouter:
             req = LLMRequest(**{**request.__dict__, "model": req_model})
             started = time.perf_counter()
             try:
-                resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
+                try:
+                    resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
+                except ProviderError as exc:
+                    # The agent's model may have been retired/renamed: retry once with the provider default.
+                    if exc.status in (429, 500, 503) and name not in FREE_PROVIDERS:
+                        # Demand spikes are usually momentary: one short retry before falling back.
+                        await asyncio.sleep(1.5)
+                        resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
+                    elif exc.status == 404 and req_model != prov.default_model:
+                        log.warning("model not found, using provider default", extra={"provider": name, "model": req_model})
+                        req_model = prov.default_model
+                        req = LLMRequest(**{**request.__dict__, "model": req_model})
+                        resp = await asyncio.wait_for(prov.generate(req), timeout=self.settings.llm_timeout_seconds + 5)
+                    else:
+                        raise
             except (ProviderError, asyncio.TimeoutError) as exc:
                 err = exc if isinstance(exc, ProviderError) else ProviderError(name, "timeout")
                 latency = int((time.perf_counter() - started) * 1000)

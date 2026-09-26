@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: SecretStr = SecretStr("")
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
-    gemini_default_model: str = "gemini-2.5-flash"
+    gemini_default_model: str = "gemini-3.8-flash"
 
     ollama_base_url: str = ""
     ollama_default_model: str = "llama3.1:8b"

@@ -31,7 +31,7 @@ def _raise_for_status(provider: str, resp: httpx.Response) -> None:
     # Do not echo the response body wholesale: it can contain request details.
     snippet = resp.text[:200].replace("\n", " ")
     retryable = resp.status_code in (408, 409, 425, 429) or resp.status_code >= 500
-    raise ProviderError(provider, f"HTTP {resp.status_code}: {snippet}", retryable=retryable)
+    raise ProviderError(provider, f"HTTP {resp.status_code}: {snippet}", retryable=retryable, status=resp.status_code)
 
 
 class _HttpProvider(LLMProvider):
@@ -185,7 +185,8 @@ class GeminiProvider(_HttpProvider):
         data = await self._post(url, body, self._headers())
         try:
             parts = data["candidates"][0]["content"]["parts"]
-            text = "".join(p.get("text", "") for p in parts)
+            # Thinking models may return thought parts; only the answer counts.
+            text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
         except (KeyError, IndexError, TypeError) as exc:
             reason = (data.get("promptFeedback") or {}).get("blockReason", "no candidates")
             raise ProviderError(self.name, f"empty response ({reason})") from exc

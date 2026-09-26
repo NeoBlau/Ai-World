@@ -19,7 +19,8 @@ CONTEXT_FIELDS = ("agent_id", "agent", "action", "room", "model", "provider", "l
 _SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),  # OpenAI / Anthropic style
     re.compile(r"sk-ant-[A-Za-z0-9_\-]{12,}"),
-    re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),  # Google
+    re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),  # Google (classic)
+    re.compile(r"AQ\.[0-9A-Za-z_\-]{20,}"),  # Google (new key format)
     re.compile(r"(?i)(api[_-]?key|authorization|x-api-key|bearer)\s*[:=]\s*\S+"),
 ]
 

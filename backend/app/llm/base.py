@@ -17,10 +17,11 @@ Role = Literal["user", "assistant"]
 class ProviderError(Exception):
     """Raised when a provider call fails (network, auth, quota, bad output)."""
 
-    def __init__(self, provider: str, message: str, *, retryable: bool = True) -> None:
+    def __init__(self, provider: str, message: str, *, retryable: bool = True, status: int | None = None) -> None:
         super().__init__(f"[{provider}] {message}")
         self.provider = provider
         self.retryable = retryable
+        self.status = status
 
 
 class ProviderNotConfigured(ProviderError):

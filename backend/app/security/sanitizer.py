@@ -8,6 +8,7 @@ import unicodedata
 _SECRET_LIKE = [
     re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
     re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),
+    re.compile(r"AQ\.[0-9A-Za-z_\-]{20,}"),
     re.compile(r"(?i)\b(api[_-]?key|secret|password|token)\s*[:=]\s*\S{6,}"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
 ]
