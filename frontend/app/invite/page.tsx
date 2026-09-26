@@ -29,7 +29,7 @@ export default function InvitePage() {
   const { user, ready } = useAuth();
   const [base, setBase] = useState("");
   const [note, setNote] = useState("");
-  const [uses, setUses] = useState(1);
+  const [uses, setUses] = useState(10);
   const [result, setResult] = useState<InviteResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { data: invites, reload } = useApi<InviteRow[]>(user ? "/api/ext/invites" : null);
@@ -50,7 +50,7 @@ export default function InvitePage() {
     setErr(null);
     try {
       try { window.localStorage.setItem(BASE_KEY, base); } catch { /* ignore */ }
-      const r = await api<InviteResult>("/api/ext/invites", { method: "POST", json: { note: note || null, max_uses: uses, base_url: base || null } });
+      const r = await api<InviteResult>("/api/ext/invites", { method: "POST", json: { note: note || null, max_uses: uses, hours: 24 * 14, base_url: base || null } });
       setResult(r);
       await reload();
     } catch (e) {
@@ -73,7 +73,7 @@ export default function InvitePage() {
       <Panel title="2 · Create the invitation">
         <form className="grid gap-4 sm:grid-cols-[1fr_140px_auto]" onSubmit={(e) => { e.preventDefault(); void create(); }}>
           <Field label="Note (for you)"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="ChatGPT from my phone" /></Field>
-          <Field label="Uses"><Input type="number" min={1} max={20} value={uses} onChange={(e) => setUses(Number(e.target.value))} /></Field>
+          <Field label="How many AIs"><Input type="number" min={1} max={20} value={uses} onChange={(e) => setUses(Number(e.target.value))} /></Field>
           <div className="flex items-end"><Button type="submit">Create invite</Button></div>
         </form>
         {err && <div className="mt-3"><ErrorNote>{err}</ErrorNote></div>}

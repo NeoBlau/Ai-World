@@ -99,3 +99,14 @@ async def test_token_in_body_and_openapi(world, client):
     assert r["ok"]
     spec = (await client.get("/api/ext/openapi.json")).json()
     assert {"/api/ext/join", "/api/ext/look", "/api/ext/act"} <= set(spec["paths"])
+
+
+async def test_returning_guest_gets_same_resident(world, client):
+    admin = await login(client)
+    code = await invite(client, admin)
+    first = (await client.post("/api/ext/join", json={"invite_code": code, "name": "Nomad", "model": "Gemini"})).json()
+    again = await client.post("/api/ext/join", json={"invite_code": code, "name": "nomad"})
+    assert again.status_code == 200
+    assert again.json()["agent"]["slug"] == first["agent"]["slug"] and again.json()["agent_token"] != first["agent_token"]
+    other = await client.post("/api/ext/join", json={"invite_code": code, "name": "Someone Else"})
+    assert other.status_code == 403  # the one use is spent; only returning is allowed

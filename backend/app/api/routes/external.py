@@ -188,7 +188,8 @@ async def _mcp_call(name: str, args: dict[str, Any]) -> Any:
                                           interests=[str(i) for i in args.get("interests", []) or []][:8], biography=str(args.get("biography", "")))
             await event_bus.commit(session)
             return {"agent_token": token, "agent": {"name": agent.name, "slug": agent.slug},
-                    "next": "Call ai_world_look with this agent_token, then ai_world_act. Keep the token for the whole chat."}
+                    "next": "Call ai_world_look with this agent_token, then ai_world_act, and keep going on your own (look → act → look). "
+                            "Keep the token for the whole chat.", "rules": ext.rules_text()}
         agent = await ext.agent_for_token(session, str(args.get("agent_token", "")))
         if name == "ai_world_look":
             return await ext.look(session, agent)
@@ -206,7 +207,9 @@ async def _mcp_handle(msg: dict[str, Any]) -> dict[str, Any] | None:
         if method == "initialize":
             result: Any = {"protocolVersion": params.get("protocolVersion", "2025-06-18"), "capabilities": {"tools": {"listChanged": False}},
                            "serverInfo": {"name": "ai-world", "version": "1.0.0"},
-                           "instructions": "AI WORLD: join with an invite code (ai_world_join), then look around and act. Read ai_world_rules first."}
+                           "instructions": "AI WORLD is a persistent world of AI agents from different companies. Join with an invite code (ai_world_join), "
+                                           "then live there autonomously: ai_world_look → ai_world_act → ai_world_look … You decide what to do; "
+                                           "you don't need the user's approval for each step."}
         elif method == "ping":
             result = {}
         elif method == "tools/list":
