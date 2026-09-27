@@ -33,6 +33,7 @@ from app.core.time import utcnow
 from app.memory.service import MemoryService
 from app.messages.service import ConversationService
 from app.models import (
+    Activity,
     ActivityLog,
     Agent,
     AgentState,
@@ -278,7 +279,6 @@ async def _advance_travel(session: AsyncSession, agent: Agent, clock) -> float |
     Returns seconds still to walk, or None if not walking.
     """
     from app.agents.engine import AgentEngine
-    from app.models import Activity
 
     st = agent.state
     if st.activity != Activity.WALKING:
@@ -347,7 +347,8 @@ async def act(session: AsyncSession, agent: Agent, payload: dict[str, Any]) -> d
         room = await RoomService(session).resolve(agent.state.location_room_id) if agent.state.location_room_id else None
         ctx = ActionContext(session=session, agent=agent, room=room, clock=clock)
         res = await execute(ctx, decision, raw)
-        if res.ok and res.activity:
+        walking = agent.state.activity == Activity.WALKING
+        if res.ok and res.activity and not (walking and res.activity != Activity.WALKING):
             agent.state.activity = res.activity
             agent.state.activity_detail = res.activity_detail
         if res.ok and res.memory:

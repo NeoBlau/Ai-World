@@ -230,7 +230,8 @@ class AgentEngine:
         if d.thought and decided_by == "llm":
             st.last_thought = clean_text(d.thought, 500)
         if result.ok:
-            if result.activity:
+            if result.activity and not (st.activity == Activity.WALKING and result.activity != Activity.WALKING):
+                # remembering/observing on the way must not cancel the walk
                 st.activity = result.activity
                 st.activity_detail = result.activity_detail
             elif d.next_activity and st.activity == Activity.IDLE:

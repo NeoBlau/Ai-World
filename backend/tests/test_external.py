@@ -166,3 +166,15 @@ async def test_outside_ai_arrives_after_walking(world, client):
     await world.commit()
     look = (await client.get("/api/ext/look", headers=h)).json()
     assert look["you"]["location"]["slug"] == "ai-cafe" and look["you"]["activity"] != "walking"
+
+
+async def test_remembering_while_walking_does_not_cancel_the_walk(world, client):
+    from app.agents import external as ext
+    from app.models import Activity
+
+    invite, code = await ext.create_invite(world, None)
+    agent, _ = await ext.join(world, code, name="Walker", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    assert (await ext.act(world, agent, {"action": "walk", "params": {"room": "library"}}))["ok"]
+    assert (await ext.act(world, agent, {"action": "remember", "params": {"content": "on my way to the library", "importance": 5}}))["ok"]
+    assert agent.state.activity == Activity.WALKING
