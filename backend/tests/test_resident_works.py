@@ -94,3 +94,15 @@ async def test_works_endpoint(world, client):
     await world.commit()
     data = (await client.get("/api/governance/works")).json()
     assert data["items"][0]["name"] == "Lantern" and data["books"][0]["title"] == "Notes from the Café"
+
+
+async def test_third_player_can_join_a_running_match(world):
+    luna = await ctx_for(world, "luna")
+    await execute(luna, Decision(action="invent_game", params={"name": "Trio", "rules": "Three players take turns naming a star.", "max_players": 3}))
+    await execute(luna, Decision(action="play_invented_game", params={"game": "Trio"}))
+    for slug in ("neo", "mira"):
+        c = await ctx_for(world, slug)
+        c.room = luna.room
+        assert (await execute(c, Decision(action="play_invented_game", params={"game": "Trio"}))).ok
+    match = (await world.execute(select(CustomMatch))).scalar_one()
+    assert len(match.players) == 3 and match.status == "playing"

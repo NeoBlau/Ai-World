@@ -171,7 +171,7 @@ class WorksService:
         game = await self.find_game(game_ref)
         if game is None or not game.active:
             raise WorksError("unknown invented game")
-        rows = await self.session.execute(select(CustomMatch).where(CustomMatch.game_id == game.id, CustomMatch.status == "waiting",
+        rows = await self.session.execute(select(CustomMatch).where(CustomMatch.game_id == game.id, CustomMatch.status.in_(("waiting", "playing")),
                                                                     CustomMatch.room_id == (room.id if room else None)))
         match = next((m for m in rows.scalars() if len(m.players) < game.max_players), None)
         if match is None:
