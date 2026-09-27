@@ -116,7 +116,7 @@ class AgentEngine:
         clock = await get_clock(session)
         phase = clock.phase()
         elapsed = (now - state.last_cycle_at).total_seconds() if state.last_cycle_at else 0.0
-        dynamics.update_drives(agent, state, elapsed, phase)
+        dynamics.update_drives(agent, state, elapsed, phase, at_home=await _at_home(session, agent))
         state.last_cycle_at = now
         state.cycles += 1
 
@@ -394,3 +394,9 @@ async def ensure_scheduled(session: AsyncSession, schedule: AgentSchedule | None
             added += 1
     return added
 
+
+async def _at_home(session: AsyncSession, agent: Agent) -> bool:
+    from app.governance.homes import is_home_of
+
+    room = await session.get(Room, agent.state.location_room_id) if agent.state.location_room_id else None
+    return is_home_of(room, agent.id)

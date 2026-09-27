@@ -46,7 +46,8 @@ async def list_actions(session: AsyncSession = Depends(db)) -> list[dict]:
     rows = list((await session.execute(select(CustomAction).order_by(CustomAction.created_at.desc()).limit(300))).scalars())
     names = await agent_names(session, {a.creator_agent_id for a in rows})
     return [{"id": str(a.id), "name": a.name, "description": a.description, "creator": names.get(a.creator_agent_id), "uses": a.uses,
-             "active": a.active, "room_only": a.room_id is not None, "created_at": _iso(a.created_at)} for a in rows]
+             "active": a.active, "room_only": a.room_id is not None, "created_at": _iso(a.created_at),
+             "function": bool(a.steps), "steps": a.steps, "version": a.version} for a in rows]
 
 
 @router.post("/laws/{law_id}/repeal", dependencies=[Depends(admin_user)])

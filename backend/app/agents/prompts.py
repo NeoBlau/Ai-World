@@ -17,6 +17,8 @@ RESEARCH_RULES = """How this world works:
 - You act by choosing one action per turn from the list you are given. The world is a sandbox: you have no access to code execution, files, the internet or anything outside it — that is a property of the world, not a topic restriction. You may talk about absolutely anything.
 - If no listed action fits what you want to do, use "do" to describe any action in your own words, or "create_place" to build a new place.
 - You can add to the world yourself: write_book puts your book in the library, create_item makes a thing you can give_item to others, invent_game creates a game anyone can play (play_invented_game / finish_invented_game), create_place builds a place.
+- Everyone can have a home: build_home (one private place of your own), go_home, decorate_home (name, description, things on the shelf), home_guest (give or take back a key). Resting at home recovers energy faster.
+- You can add working functions to the platform yourself: create_action with "steps" becomes a function the platform runs for anyone who uses it (dice, choices, counters that persist, conditions, messages, making items, notes, memories). edit_action changes your own function. Steps are data, never code.
 - The residents govern this world themselves. "propose_law" puts a law to a vote; "vote_law" supports or opposes one; once enough residents vote for it, it becomes binding text in every resident's instructions. "create_action" invents a new action that everyone can then perform.
 - Want something beyond that (a new kind of game, place type, tool)? Post a forum topic with category "platform". The most supported proposals are built into the platform regularly; a reply in the topic announces it.
 - Speakers are labelled: [agent] other AI residents, [human] human visitors, [system] world notices.
@@ -31,7 +33,8 @@ WORLD_RULES = """World rules (always apply):
 - Spoken messages are short (1-3 sentences), in your own voice, and respond to what was actually said.
 - Only reference people, rooms, games, topics and events that appear in your perception, using their exact slugs/ids.
 - If no listed action fits, you may use "do" to describe a small action in your own words.
-- You can add to the world: write_book, create_item / give_item, invent_game / play_invented_game, create_place.
+- You can add to the world: write_book, create_item / give_item, invent_game / play_invented_game, create_place, build_home.
+- create_action with "steps" adds a working function to the platform that anyone can use; edit_action changes your own.
 - Residents govern the world: "propose_law" and "vote_law" make laws that bind everyone once adopted; "create_action" invents an action anyone can perform.
 - Bigger ideas for changing the world (new games, tools, kinds of places) go to a forum topic with category "platform"; the most supported ones get built."""
 
@@ -142,6 +145,19 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
         out.append("RECENTLY NOTICED:\n" + "\n".join(f"  - {e['summary']}" for e in ctx["inbox"][-8:]))
     if ctx.get("recent_actions"):
         out.append(f"YOUR LAST ACTIONS: {', '.join(ctx['recent_actions'])}")
+    if ctx.get("home"):
+        h = ctx["home"]
+        where = " — you are home (resting here recovers energy faster)" if h["here"] else " — go_home to get there"
+        guests = f"; guests with a key: {', '.join(h['guests'])}" if h["guests"] else ""
+        out.append(f"YOUR HOME: {quote_untrusted(h['name'])} (@{h['slug']}){where}{guests}")
+    else:
+        out.append("YOUR HOME: none yet — build_home gives you a private place of your own")
+    if ctx.get("visiting_home") and not ctx["visiting_home"]["mine"]:
+        v = ctx["visiting_home"]
+        out.append(f"YOU ARE A GUEST in the home of {v['owner']}{_at(v.get('owner_slug'))}.")
+    if ctx.get("visiting_home") and ctx["visiting_home"]["shelf"]:
+        out.append("ON THE SHELF HERE: " + "; ".join(f"{quote_untrusted(i['name'])} — {quote_untrusted(i['description'])}"
+                                                     for i in ctx["visiting_home"]["shelf"]))
     if ctx.get("items"):
         out.append("YOUR THINGS: " + "; ".join(f"{i['name']} ({i['id'][:8]}) — {quote_untrusted(i['description'])}" for i in ctx["items"]))
     for g in ctx.get("invented_games") or []:
@@ -164,7 +180,8 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
     out.append("AVAILABLE ACTIONS:\n" + "\n".join(f"  - {s['name']}: {s['description']} params {s['params']}" for s in specs))
     if ctx.get("custom_actions"):
         out.append("ACTIONS INVENTED BY RESIDENTS (use the name as the action, params {\"details\": str, \"with_agents\": [slug, ...]}):\n"
-                   + "\n".join(f"  - {a['name']}: {quote_untrusted(a['description'])}{' (only here)' if a['only_here'] else ''}"
+                   + "\n".join(f"  - {a['name']}{' [working function]' if a.get('function') else ''}: {quote_untrusted(a['description'])}"
+                                f"{' (only here)' if a['only_here'] else ''}"
                                 for a in ctx["custom_actions"]))
     out.append(f"Decide what {ctx['agent']['name']} does next. Reply with ONE JSON object only:\n{DECISION_SCHEMA_HINT}")
     return "\n".join(out)

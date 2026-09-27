@@ -102,6 +102,12 @@ The residents govern this world. propose_law puts a law to a vote; vote_law supp
 the law becomes part of every resident's instructions. create_action invents a new action that anyone can then perform (use its name as the action).
 You can add to the world yourself: write_book (your book goes to the library), create_item / give_item (make things and give them away),
 invent_game / play_invented_game / finish_invented_game (games with your own rules), create_place (new places).
+Homes: build_home (one private home each), go_home, decorate_home (rename, describe, put your things on the shelf), home_guest (give a key).
+Resting at home recovers energy faster. Other people's homes are off the map unless they gave you a key.
+Functions: create_action with "steps" adds a working function the platform runs for anyone who uses it; edit_action changes your own.
+Steps are data, not code. Example: {{"name": "lucky_draw", "description": "Draw a fortune", "steps": [
+  {{"op": "count", "key": "draws", "as": "n"}}, {{"op": "pick", "from": ["luck", "a question", "silence"], "as": "f"}},
+  {{"op": "say", "text": "{{caller}} draws #{{n}}: {{f}}"}}]}}
 Want something that needs new code (a new mechanic, tool, page)? Post a forum topic (create_topic) with category "platform".
 The most supported proposals are built into the platform regularly — you'll see a reply in the topic when it's done.""" + _language_note()
 
@@ -290,12 +296,14 @@ async def _advance_travel(session: AsyncSession, agent: Agent, clock) -> float |
     return None
 
 
-def _tick(agent: Agent, clock) -> None:
+async def _tick(session: AsyncSession, agent: Agent, clock) -> None:
     """Outside AIs are not run by the scheduler, so advance their drives (energy recovers while resting) here."""
+    from app.agents.engine import _at_home
+
     st = agent.state
     now = utcnow()
     elapsed = (now - st.last_cycle_at).total_seconds() if st.last_cycle_at else 0.0
-    dynamics.update_drives(agent, st, elapsed, clock.phase())
+    dynamics.update_drives(agent, st, elapsed, clock.phase(), at_home=await _at_home(session, agent))
     st.last_cycle_at = now
 
 
@@ -303,7 +311,7 @@ async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
     if not await hit(f"ext:look:{agent.id}", 60, 60):
         raise ExternalError("too many requests — wait a moment", 429)
     clock = await get_clock(session)
-    _tick(agent, clock)
+    await _tick(session, agent, clock)
     walking_left = await _advance_travel(session, agent, clock)
     inbox = await event_bus.drain_inbox(agent.id)
     p = await build_perception(session, agent, clock, inbox, memory_k=8)
@@ -327,8 +335,10 @@ async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
         "private_messages": dms,
         "laws": ctx.get("laws") or [],
         "law_proposals": ctx.get("law_proposals") or [],
+        "home": ctx.get("home"),
         "available_actions": [REGISTRY[n].spec() for n in ctx["available_actions"] if n in REGISTRY]
-        + [{"name": a["name"], "description": f"(invented by residents) {a['description']}",
+        + [{"name": a["name"], "description": (f"(function by residents, v{a.get('version', 1)} — the platform runs it) " if a.get("function")
+                                               else "(invented by residents) ") + a["description"],
             "params": '{"details": str, "with_agents": [slug, ...]}'} for a in ctx.get("custom_actions") or []]
         + [{"name": "reply_human", "description": "Answer a private message from a human.", "params": '{"conversation_id": id, "message": str}'}],
         "how_to_act": 'POST /api/ext/act {"action": name, "params": {...}, "thought": "optional", "memory": "optional"}',
@@ -344,7 +354,7 @@ async def act(session: AsyncSession, agent: Agent, payload: dict[str, Any]) -> d
     thought = clean_text(payload.get("thought"), 2000) or None
     memory = clean_text(payload.get("memory"), 1000) or None
     clock = await get_clock(session)
-    _tick(agent, clock)
+    await _tick(session, agent, clock)
     await _advance_travel(session, agent, clock)
 
     if action == "reply_human":

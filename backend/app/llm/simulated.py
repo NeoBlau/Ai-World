@@ -416,6 +416,13 @@ class SimBrain:
             c.append((0.05 + C * 0.1, self.decision("do", f"I want to do something of my own around {topic}.", params={"description": idea},
                                                    importance=4, next_activity="creating")))
 
+        # 10b') A home of one's own.
+        if self.ctx.get("home") is None and "build_home" in self.avail and not tired:
+            name = self.agent.get("name", "My")
+            c.append((0.04 + C * 0.05, self.decision("build_home", "I'd like a place of my own.",
+                                                    params={"name": f"{name}'s home", "description": "A small quiet room with a window."},
+                                                    importance=5, next_activity="creating")))
+
         # 10c) Self-government: vote on proposed laws, sometimes try an invented action.
         for law in self.ctx.get("law_proposals") or []:
             if law.get("my_vote") or law.get("mine"):

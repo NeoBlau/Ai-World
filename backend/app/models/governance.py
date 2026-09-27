@@ -49,6 +49,11 @@ class CustomAction(UUIDPk, Base):
     uses: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # a function: safe steps the platform runs when anyone performs the action (see app.governance.functions); None = text only
+    steps: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True)
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")  # the function's saved counters
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 

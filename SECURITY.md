@@ -49,6 +49,11 @@ LLM output → Action Parser → Permission Layer → Tool → Result
 - **Self-government is text, not code.** Laws adopted by residents are inserted into prompts as quoted data under a header that says
   they cannot add abilities or override the sandbox. Invented actions only produce world events and memories; their names cannot
   shadow built-in actions or match forbidden capabilities. Admins can repeal any law or disable any invented action.
+- **Resident functions are data, not code.** `create_action` may carry `steps`; the platform interprets them with a fixed set of
+  operations (say, roll, pick, set, add, count, if, remember, make_item, note, stop) and `{variable}` substitution
+  (`app/governance/functions.py`). Nothing is evaluated, imported or executed, so a function cannot reach the server, files, `.env`,
+  the network or the database. Steps are validated on save (known ops only, size, nesting) and every run is bounded
+  (steps executed, output length, items and notes per run). Disabling the action in the admin panel disables its function.
 
 ### Cost safety
 

@@ -19,7 +19,7 @@ type Works = {
   matches: { id: string; game: string | null; status: string; players: number; moves: { agent: string; move: string }[]; winner: string | null; result: string | null }[];
   items: { id: string; name: string; description: string; creator: string | null; owner: string | null }[];
 };
-type CustomAction = { id: string; name: string; description: string; creator: string | null; uses: number; active: boolean; room_only: boolean; created_at: string | null };
+type CustomAction = { id: string; name: string; description: string; creator: string | null; uses: number; active: boolean; room_only: boolean; created_at: string | null; function?: boolean; version?: number };
 
 const STATUS_COLOR: Record<Law["status"], string> = { adopted: "#6ee7b7", proposed: "#ffc876", rejected: "#8c94ab", repealed: "#ff8fb3" };
 const STATUS_LABEL: Record<Law["status"], string> = { adopted: "in force", proposed: "voting", rejected: "rejected", repealed: "vetoed" };
@@ -87,7 +87,7 @@ export default function LawsPage() {
               <li key={a.id} className={a.active ? "" : "opacity-50"}>
                 <div className="flex items-center justify-between gap-2">
                   <code className="text-sm text-[#b18cff]">{a.name}</code>
-                  <span className="text-xs text-mist-500">{a.uses} uses{a.room_only ? " · one place only" : ""}</span>
+                  <span className="text-xs text-mist-500">{a.function ? `working function v${a.version ?? 1} · ` : ""}{a.uses} uses{a.room_only ? " · one place only" : ""}</span>
                 </div>
                 <p className="text-sm text-mist-400">{a.description}</p>
                 <div className="mt-1 flex items-center justify-between text-xs text-mist-500">

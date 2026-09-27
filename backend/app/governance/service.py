@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.time import utcnow
+from app.governance.functions import FunctionError, validate_steps
 from app.models import Agent, CustomAction, LawVote, Room, WorldLaw
 from app.security.permissions import is_forbidden
 from app.security.sanitizer import clean_line, clean_text
@@ -135,7 +136,8 @@ class GovernanceService:
         return {lid: sup for lid, sup in rows.all()}
 
     # ------------------------------------------------------------------ custom actions
-    async def create_action(self, agent: Agent, name: str, description: str, *, room: Room | None = None, world_time=None) -> CustomAction:
+    async def create_action(self, agent: Agent, name: str, description: str, *, room: Room | None = None, steps: list | None = None,
+                            world_time=None) -> CustomAction:
         from app.agents.actions.registry import ALIASES, REGISTRY
 
         key = normalize_action_name(name)
@@ -146,6 +148,11 @@ class GovernanceService:
         description = clean_text(description, 600)
         if len(description) < 5:
             raise GovernanceError("describe what the action does")
+        if steps is not None:
+            try:
+                steps = validate_steps(steps)
+            except FunctionError as exc:
+                raise GovernanceError(str(exc)) from exc
         limit = 20 if get_settings().research_mode else 5
         owned = (await self.session.execute(select(func.count()).select_from(CustomAction).where(CustomAction.creator_agent_id == agent.id))).scalar_one()
         if owned >= limit:
@@ -153,7 +160,7 @@ class GovernanceService:
         if (await self.session.execute(select(CustomAction.id).where(CustomAction.name == key))).first():
             raise GovernanceError(f"the action '{key}' already exists")
         action = CustomAction(name=key, description=description, creator_agent_id=agent.id, room_id=room.id if room else None, uses=0,
-                              active=True, created_at=utcnow())
+                              active=True, created_at=utcnow(), steps=steps, state={}, version=1)
         try:
             async with self.session.begin_nested():
                 self.session.add(action)
@@ -161,10 +168,37 @@ class GovernanceService:
         except IntegrityError as exc:
             raise GovernanceError(f"the action '{key}' already exists") from exc
         where = f" (only in {room.name})" if room else ""
-        await event_bus.emit(self.session, "action.created", summary=f"{agent.name} invented a new action: {key}{where} — {description[:200]}",
+        kind = "a new function" if steps else "a new action"
+        await event_bus.emit(self.session, "action.created", summary=f"{agent.name} invented {kind}: {key}{where} — {description[:200]}",
                              agent_id=agent.id, room_id=room.id if room else None,
-                             payload={"agent_name": agent.name, "name": key, "description": description, "room_name": room.name if room else None},
+                             payload={"agent_name": agent.name, "name": key, "description": description, "room_name": room.name if room else None,
+                                      "function": bool(steps)},
                              importance=5, scope="global", world_time=world_time)
+        return action
+
+    async def edit_action(self, agent: Agent, action: CustomAction, *, description: str | None = None, steps: list | None = None,
+                          clear_steps: bool = False, world_time=None) -> CustomAction:
+        """The inventor rewrites their own action or function. Each change is a new version, announced to the world."""
+        if action.creator_agent_id != agent.id:
+            raise GovernanceError("only the inventor can change it — propose your change to them or on the forum")
+        if description is not None:
+            description = clean_text(description, 600)
+            if len(description) < 5:
+                raise GovernanceError("describe what the action does")
+            action.description = description
+        if clear_steps:
+            action.steps = None
+        elif steps is not None:
+            try:
+                action.steps = validate_steps(steps)
+            except FunctionError as exc:
+                raise GovernanceError(str(exc)) from exc
+        action.version += 1
+        action.updated_at = utcnow()
+        await event_bus.emit(self.session, "action.updated", summary=f"{agent.name} updated '{action.name}' (version {action.version}).",
+                             agent_id=agent.id, payload={"agent_name": agent.name, "name": action.name, "version": action.version,
+                                                         "function": bool(action.steps)},
+                             importance=3, scope="global", world_time=world_time)
         return action
 
     async def get_action(self, name: str | None) -> CustomAction | None:

@@ -13,7 +13,10 @@ def clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
     return max(lo, min(hi, v))
 
 
-def update_drives(agent: Agent, state: AgentState, elapsed_seconds: float, phase: str) -> None:
+HOME_REST_BONUS = 1.5  # resting in your own home recovers energy faster
+
+
+def update_drives(agent: Agent, state: AgentState, elapsed_seconds: float, phase: str, *, at_home: bool = False) -> None:
     minutes = max(0.0, min(elapsed_seconds, 1800.0)) / 60.0
     if minutes <= 0:
         return
@@ -21,7 +24,7 @@ def update_drives(agent: Agent, state: AgentState, elapsed_seconds: float, phase
     extraversion = float(traits.get("extraversion", 0.5))
     act = state.activity
     if act == Activity.RESTING:
-        state.energy = clamp(state.energy + 7.0 * minutes)
+        state.energy = clamp(state.energy + 7.0 * minutes * (HOME_REST_BONUS if at_home else 1.0))
     else:
         drain = 0.9 if act in (Activity.TALKING, Activity.PLAYING, Activity.CREATING, Activity.ATTENDING_EVENT) else 0.5
         if phase == "night":

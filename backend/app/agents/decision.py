@@ -87,7 +87,7 @@ MESSAGE_KEYS = {
     "play_invented_game": "move", "finish_invented_game": "result",
 }
 TARGET_KEYS = {"talk": "target_agent", "meet_agent": "target_agent", "invite_agent": "target_agent", "play_game": "opponent",
-               "give_item": "target_agent"}
+               "give_item": "target_agent", "home_guest": "target_agent"}
 
 
 def build_params(decision: Decision, raw: dict[str, Any], tool_name: str) -> dict[str, Any]:

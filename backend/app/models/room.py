@@ -37,6 +37,7 @@ class Room(UUIDPk, Timestamped, Base):
     position: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)  # {x, z, w, d} layout used by 2D/3D clients
     theme: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     ambience: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    furnishings: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")  # item ids on display (homes)
 
 
 class RoomMember(UUIDPk, Base):

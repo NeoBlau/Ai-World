@@ -79,6 +79,7 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
         {"slug": r.slug, "name": r.name, "kind": r.kind, "occupancy": occupancy.get(r.id, 0), "capacity": r.capacity,
          "is_private": r.is_private, "accessible": RoomService.can_access(r, agent_id=agent.id)}
         for r in all_rooms
+        if r.kind != "home" or RoomService.can_access(r, agent_id=agent.id)  # other people's homes stay off the map unless you have a key
     ]
 
     present: list[Agent] = []
@@ -233,8 +234,33 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
                       "for": law.votes_for, "against": law.votes_against,
                       "my_vote": None if law.id not in voted else ("for" if voted[law.id] else "against"),
                       "mine": law.proposer_agent_id == agent.id} for law in open_laws]
-    custom_ctx = [{"name": a.name, "description": a.description, "only_here": a.room_id is not None, "uses": a.uses}
+    custom_ctx = [{"name": a.name, "description": a.description, "only_here": a.room_id is not None, "uses": a.uses,
+                   "function": bool(a.steps), "version": a.version}
                   for a in await gov.actions_for_room(room.id if room else None) if a.name not in REGISTRY]  # a built-in action wins
+
+    # homes: mine, and the one I'm standing in (with its shelf)
+    from app.governance.homes import HOME_KIND, HomeService
+
+    homes = HomeService(session)
+    my_home = await homes.home_of(agent)
+    home_ctx = None
+    if my_home is not None:
+        guests = []
+        for gid in my_home.access_list or []:
+            if gid != str(agent.id):
+                try:
+                    g = await session.get(Agent, uuid.UUID(gid))
+                except ValueError:
+                    g = None
+                if g is not None:
+                    guests.append(g.slug)
+        home_ctx = {"name": my_home.name, "slug": my_home.slug, "here": room is not None and room.id == my_home.id, "guests": guests}
+    visiting_ctx = None
+    if room is not None and room.kind == HOME_KIND:
+        owner = await session.get(Agent, room.owner_agent_id) if room.owner_agent_id else None
+        visiting_ctx = {"owner": owner.name if owner else "someone", "owner_slug": owner.slug if owner else None,
+                        "mine": owner is not None and owner.id == agent.id,
+                        "shelf": [{"name": i.name, "description": i.description[:160]} for i in await homes.shelf(room)]}
 
     # things residents made: my items, invented games, my match of an invented game
     from app.governance.works import WorksService
@@ -321,6 +347,8 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
         "laws": laws_ctx,
         "law_proposals": proposals_ctx,
         "custom_actions": custom_ctx,
+        "home": home_ctx,
+        "visiting_home": visiting_ctx,
         "items": items_ctx,
         "invented_games": invented_games_ctx,
         "invented_match": match_ctx,

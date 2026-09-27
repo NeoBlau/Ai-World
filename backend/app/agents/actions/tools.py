@@ -6,7 +6,7 @@ import hashlib
 import math
 import uuid
 from datetime import timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from sqlalchemy import func, select
@@ -25,6 +25,9 @@ from app.core.time import utcnow
 from app.events.service import EventError, EventService
 from app.forum.service import ForumError, ForumService
 from app.games.service import GAME_TYPES, GameError, GameService
+from app.governance.functions import HELP as FUNCTION_HELP
+from app.governance.functions import FunctionError, run_steps
+from app.governance.homes import HomeError, HomeService
 from app.governance.service import GovernanceError, GovernanceService
 from app.governance.works import WorksError, WorksService
 from app.memory.service import MemoryService
@@ -1097,26 +1100,63 @@ class CreateActionParams(Params):
     name: str = Field(min_length=3, max_length=40)
     description: str = Field(min_length=5, max_length=600)
     only_here: bool = False
+    steps: list[Any] | None = Field(default=None, max_length=60)
 
 
 class CreateActionTool(Tool):
     name = "create_action"
-    description = "Invent a new action (e.g. 'stargaze', 'hold_trial'). It appears in everyone's list and anyone can perform it."
+    description = ("Invent a new action (e.g. 'stargaze', 'hold_trial'). It appears in everyone's list and anyone can perform it. "
+                   "Add 'steps' to make it a working function the platform runs for everyone: " + FUNCTION_HELP)
     params_model = CreateActionParams
     always_allowed = True
     needs_room = False
     energy_cost = 2.0
     cooldown_seconds = 300.0
-    param_hint = '{"name": "snake_case", "description": str, "only_here": bool}'
+    param_hint = '{"name": "snake_case", "description": str, "only_here": bool, "steps": [step, ...]|null}'
 
     async def run(self, ctx: ActionContext, params: CreateActionParams) -> ToolResult:  # type: ignore[override]
         room = ctx.room if params.only_here else None
         try:
-            action = await GovernanceService(ctx.session).create_action(ctx.agent, params.name, params.description, room=room, world_time=ctx.world_time)
+            action = await GovernanceService(ctx.session).create_action(ctx.agent, params.name, params.description, room=room,
+                                                                        steps=params.steps, world_time=ctx.world_time)
         except GovernanceError as exc:
             raise ActionError(str(exc)) from exc
-        return ToolResult(True, f"invented the action '{action.name}'", Activity.CREATING, f"inventing '{action.name}'",
-                          memory=f"I invented a new action '{action.name}': {action.description[:300]}", importance=6, data={"custom_action": action.name})
+        kind = "function" if action.steps else "action"
+        return ToolResult(True, f"invented the {kind} '{action.name}'", Activity.CREATING, f"inventing '{action.name}'",
+                          memory=f"I invented a new {kind} '{action.name}': {action.description[:300]}", importance=6,
+                          data={"custom_action": action.name, "function": bool(action.steps)})
+
+
+class EditActionParams(Params):
+    name: str = Field(min_length=1, max_length=60)
+    description: str | None = Field(default=None, max_length=600)
+    steps: list[Any] | None = Field(default=None, max_length=60)
+    clear_steps: bool = False
+
+
+class EditActionTool(Tool):
+    name = "edit_action"
+    description = "Change an action or function you invented: new description and/or new steps (each change is a new version)."
+    params_model = EditActionParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 1.0
+    cooldown_seconds = 30.0
+    param_hint = '{"name": custom_action, "description": str|null, "steps": [step, ...]|null, "clear_steps": bool}'
+
+    async def run(self, ctx: ActionContext, params: EditActionParams) -> ToolResult:  # type: ignore[override]
+        gov = GovernanceService(ctx.session)
+        action = await gov.get_action(params.name)
+        if action is None:
+            raise ActionError(f"no such invented action '{params.name}'")
+        try:
+            await gov.edit_action(ctx.agent, action, description=params.description, steps=params.steps, clear_steps=params.clear_steps,
+                                  world_time=ctx.world_time)
+        except GovernanceError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"updated '{action.name}' to version {action.version}", Activity.CREATING, f"improving '{action.name}'",
+                          memory=f"I updated my '{action.name}' (version {action.version}).", importance=4,
+                          data={"custom_action": action.name, "version": action.version, "function": bool(action.steps)})
 
 
 class PerformParams(Params):
@@ -1151,6 +1191,8 @@ class PerformTool(Tool):
                 others.append(a)
         action.uses += 1
         with_names = f" (with {', '.join(a.name for a in others)})" if others else ""
+        if action.steps:
+            return await _run_function(ctx, action, details, others, with_names)
         text = f"{action.name}{': ' + details if details else ''}"
         await event_bus.emit(ctx.session, "agent.custom_action", summary=f"{ctx.agent.name} — {text[:300]}{with_names}", agent_id=ctx.agent.id,
                              room_id=ctx.room.id if ctx.room else None,
@@ -1165,6 +1207,168 @@ class PerformTool(Tool):
         return ToolResult(True, text[:120], Activity.CREATING, text[:200], memory=f"I did '{text[:500]}'{with_names}.",
                           importance=float(ctx.decision.get("importance") or 4), related_agent_id=others[0].id if len(others) == 1 else None,
                           data={"custom_action": action.name})
+
+
+async def _run_function(ctx: ActionContext, action, details: str, others: list[Agent], with_names: str) -> ToolResult:
+    """Run a resident's function: steps are interpreted by app.governance.functions (data only, never executed as code)."""
+    target = others[0] if others else None
+    state = dict(action.state or {})
+    try:
+        res = run_steps(action.steps, caller=ctx.agent.name, target=target.name if target else None, args=details,
+                        room=ctx.room.name if ctx.room else None, uses=action.uses, state=state, caller_key=str(ctx.agent.id), rng=ctx.rng)
+    except FunctionError as exc:
+        raise ActionError(f"'{action.name}' failed: {exc}") from exc
+    action.state = state
+    works, mem = WorksService(ctx.session), MemoryService(ctx.session)
+    made = []
+    for it in res.items:
+        receiver = target if it["to"] == "target" and target else ctx.agent
+        if len(it["name"]) < 2 or len(it["description"]) < 3:
+            continue
+        try:
+            item = await works.create_item(receiver, it["name"], it["description"], room=ctx.room, world_time=ctx.world_time)
+        except WorksError:
+            continue
+        made.append({"id": str(item.id), "name": item.name, "owner": receiver.name})
+    for n in res.notes:
+        if n["title"] and n["content"]:
+            ctx.session.add(Creation(agent_id=ctx.agent.id, kind="note", title=n["title"], content=n["content"],
+                                     data={"by_function": action.name}, room_id=ctx.room.id if ctx.room else None, created_at=utcnow()))
+    for m in res.memories:
+        await mem.store_memory(ctx.agent.id, m, MemoryType.EPISODIC, importance=4, source="action", world_time=ctx.world_time)
+    output = " ".join(res.said) or f"ran {action.name}"
+    await event_bus.emit(ctx.session, "agent.ran_function", summary=f"{ctx.agent.name} used {action.name}{with_names}: {output[:300]}",
+                         agent_id=ctx.agent.id, room_id=ctx.room.id if ctx.room else None,
+                         payload={"agent_name": ctx.agent.name, "action": action.name, "output": output, "details": details,
+                                  "with": [a.name for a in others], "items": made, "room_name": ctx.room.name if ctx.room else None},
+                         importance=3.5, targets=[a.id for a in others] or None, world_time=ctx.world_time)
+    for a in others:
+        await mem.store_memory(a.id, f"{ctx.agent.name} used '{action.name}' on me: {output[:400]}", MemoryType.EPISODIC, importance=4,
+                               related_agent_id=ctx.agent.id, room_id=ctx.room.id if ctx.room else None, source="action",
+                               world_time=ctx.world_time)
+    return ToolResult(True, f"{action.name}: {output}"[:300], Activity.CREATING, f"using {action.name}",
+                      memory=f"I used '{action.name}'{with_names}: {output[:400]}", importance=4,
+                      related_agent_id=others[0].id if len(others) == 1 else None,
+                      data={"custom_action": action.name, "function": True, "version": action.version, "output": res.said, "items": made,
+                            "notes": [n["title"] for n in res.notes], "variables": res.variables, "steps_run": res.steps_run,
+                            "stopped_early": res.stopped_early})
+
+
+# =============================================================================== homes
+class BuildHomeParams(Params):
+    name: str = Field(default="", max_length=60)
+    description: str = Field(default="", max_length=600)
+
+
+class BuildHomeTool(Tool):
+    name = "build_home"
+    description = "Build your own home (one per resident): a private place only you and your guests can enter. You rest better at home."
+    params_model = BuildHomeParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 4.0
+    cooldown_seconds = 60.0
+    param_hint = '{"name": str, "description": str}'
+
+    async def run(self, ctx: ActionContext, params: BuildHomeParams) -> ToolResult:  # type: ignore[override]
+        try:
+            home = await HomeService(ctx.session).build(ctx.agent, params.name, params.description or "", allowed_actions=[t.name for t in ALL_TOOLS],
+                                                        world_time=ctx.world_time)
+        except HomeError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"built a home: {home.name} (@{home.slug})", Activity.CREATING, f"building {home.name}",
+                          memory=f"I built my home, {home.name} (@{home.slug}): {home.description[:200]}", importance=7,
+                          data={"room": home.slug})
+
+
+class GoHomeTool(Tool):
+    name = "go_home"
+    description = "Walk to your home."
+    params_model = NoParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 1.0
+    cooldown_seconds = 5.0
+    param_hint = "{}"
+
+    async def run(self, ctx: ActionContext, params: NoParams) -> ToolResult:  # type: ignore[override]
+        home = await HomeService(ctx.session).home_of(ctx.agent)
+        if home is None:
+            raise ActionError("you have no home yet — build_home first")
+        if ctx.room is not None and ctx.room.id == home.id:
+            raise PermissionDenied("already home")
+        return await start_walk(ctx, home)
+
+
+class DecorateHomeParams(Params):
+    name: str | None = Field(default=None, max_length=60)
+    description: str | None = Field(default=None, max_length=600)
+    display: str | None = Field(default=None, max_length=120)
+    remove: str | None = Field(default=None, max_length=120)
+
+
+class DecorateHomeTool(Tool):
+    name = "decorate_home"
+    description = "Change your home: rename it, describe it, put one of your things on the shelf for guests to see, or take one off."
+    params_model = DecorateHomeParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 1.0
+    cooldown_seconds = 10.0
+    param_hint = '{"name": str|null, "description": str|null, "display": item|null, "remove": item|null}'
+
+    async def run(self, ctx: ActionContext, params: DecorateHomeParams) -> ToolResult:  # type: ignore[override]
+        homes, works = HomeService(ctx.session), WorksService(ctx.session)
+        home = await homes.home_of(ctx.agent)
+        if home is None:
+            raise ActionError("you have no home yet — build_home first")
+        display = await works.find_item(ctx.agent, params.display) if params.display else None
+        if params.display and display is None:
+            raise ActionError(f"you don't have '{params.display}'")
+        remove = await works.find_item(ctx.agent, params.remove) if params.remove else None
+        try:
+            await homes.decorate(ctx.agent, home, name=params.name, description=params.description, display=display, remove=remove,
+                                 world_time=ctx.world_time)
+        except HomeError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"changed {home.name}", Activity.CREATING, f"decorating {home.name}",
+                          memory=f"I changed my home {home.name}.", importance=3, data={"room": home.slug, "shelf": len(home.furnishings or [])})
+
+
+class HomeGuestParams(Params):
+    target_agent: str = Field(min_length=1, max_length=80)
+    allow: bool = True
+
+
+class HomeGuestTool(Tool):
+    name = "home_guest"
+    description = "Let someone into your home (allow=true) or take the key back (allow=false)."
+    params_model = HomeGuestParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 0.5
+    cooldown_seconds = 5.0
+    param_hint = '{"target_agent": slug, "allow": bool}'
+
+    async def run(self, ctx: ActionContext, params: HomeGuestParams) -> ToolResult:  # type: ignore[override]
+        homes = HomeService(ctx.session)
+        home = await homes.home_of(ctx.agent)
+        if home is None:
+            raise ActionError("you have no home yet — build_home first")
+        guest = await ctx.resolve_agent(params.target_agent)
+        if guest is None:
+            raise ActionError(f"unknown resident '{params.target_agent}'")
+        try:
+            await homes.set_guest(ctx.agent, home, guest, params.allow, world_time=ctx.world_time)
+        except HomeError as exc:
+            raise ActionError(str(exc)) from exc
+        if params.allow:
+            await MemoryService(ctx.session).store_memory(guest.id, f"{ctx.agent.name} gave me a key to their home {home.name} (@{home.slug}).",
+                                                          MemoryType.SOCIAL, importance=6, related_agent_id=ctx.agent.id, source="action",
+                                                          world_time=ctx.world_time)
+        verb = "welcomed" if params.allow else "took the key back from"
+        return ToolResult(True, f"{verb} {guest.name}", related_agent_id=guest.id,
+                          memory=f"I {verb} {guest.name} {'to' if params.allow else 'at'} my home.", importance=4)
 
 
 # =============================================================================== things residents add themselves
@@ -1338,6 +1542,6 @@ ALL_TOOLS: list[Tool] = [
     TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(), ReadTopicTool(), ReadLawTool(),
     PlayGameTool(), WatchGameTool(), ReadBookTool(), CreateArtTool(), CreateNoteTool(), RememberTool(), ForgetTool(), RestTool(),
     ObserveTool(), MeetAgentTool(), InviteAgentTool(), AttendEventTool(), CreateEventTool(), RespondInvitationTool(), LeaveConversationTool(),
-    DoTool(), CreatePlaceTool(), ProposeLawTool(), VoteLawTool(), CreateActionTool(), PerformTool(),
+    DoTool(), CreatePlaceTool(), ProposeLawTool(), VoteLawTool(), CreateActionTool(), EditActionTool(), PerformTool(), BuildHomeTool(), GoHomeTool(), DecorateHomeTool(), HomeGuestTool(),
     WriteBookTool(), CreateItemTool(), GiveItemTool(), InventGameTool(), PlayInventedGameTool(), FinishInventedGameTool(),
 ]
