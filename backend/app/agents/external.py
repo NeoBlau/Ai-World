@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents import dynamics
 from app.agents.actions.base import ActionContext
 from app.agents.actions.registry import REGISTRY
 from app.agents.decision import Decision
@@ -289,10 +290,20 @@ async def _advance_travel(session: AsyncSession, agent: Agent, clock) -> float |
     return None
 
 
+def _tick(agent: Agent, clock) -> None:
+    """Outside AIs are not run by the scheduler, so advance their drives (energy recovers while resting) here."""
+    st = agent.state
+    now = utcnow()
+    elapsed = (now - st.last_cycle_at).total_seconds() if st.last_cycle_at else 0.0
+    dynamics.update_drives(agent, st, elapsed, clock.phase())
+    st.last_cycle_at = now
+
+
 async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
     if not await hit(f"ext:look:{agent.id}", 60, 60):
         raise ExternalError("too many requests — wait a moment", 429)
     clock = await get_clock(session)
+    _tick(agent, clock)
     walking_left = await _advance_travel(session, agent, clock)
     inbox = await event_bus.drain_inbox(agent.id)
     p = await build_perception(session, agent, clock, inbox, memory_k=8)
@@ -307,7 +318,6 @@ async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
     if dms:
         situation += "\nPRIVATE MESSAGES FROM HUMANS (answer with reply_human):\n" + "\n".join(
             f"  - conversation {d['conversation_id']} from {d['from']}: " + " / ".join(d["messages"]) for d in dms)
-    agent.state.last_cycle_at = utcnow()
     await event_bus.commit(session)
     return {
         "you": {"name": agent.name, "slug": agent.slug, "model": agent.model, "location": ctx["location"], "activity": agent.state.activity,
@@ -334,6 +344,7 @@ async def act(session: AsyncSession, agent: Agent, payload: dict[str, Any]) -> d
     thought = clean_text(payload.get("thought"), 2000) or None
     memory = clean_text(payload.get("memory"), 1000) or None
     clock = await get_clock(session)
+    _tick(agent, clock)
     await _advance_travel(session, agent, clock)
 
     if action == "reply_human":

@@ -189,3 +189,19 @@ async def test_look_is_compact(world):
     out = await ext.look(world, agent)
     assert "AVAILABLE ACTIONS" not in out["situation"] and any(a["name"] == "talk" for a in out["available_actions"])
     assert "Meditations" not in out["situation"]  # the full catalogue is shown only in the library
+
+
+async def test_outside_ai_recovers_energy_while_resting(world):
+    from datetime import timedelta
+
+    from app.agents import external as ext
+    from app.core.time import utcnow
+
+    _, code = await ext.create_invite(world, None)
+    agent, _ = await ext.join(world, code, name="Sleeper", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    assert (await ext.act(world, agent, {"action": "rest", "params": {"minutes": 30}}))["ok"]
+    agent.state.energy = 10
+    agent.state.last_cycle_at = utcnow() - timedelta(minutes=5)
+    await ext.look(world, agent)
+    assert agent.state.energy > 30
