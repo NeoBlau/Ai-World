@@ -55,11 +55,14 @@ def _traits(agent: Agent) -> dict[str, float]:
 
 
 def available_actions(agent: Agent, room: Room | None) -> list[str]:
+    from app.core.config import get_settings
+
+    research = get_settings().research_mode  # research mode lifts per-room action lists
     names = []
     for name, tool in REGISTRY.items():
         if tool.needs_room and room is None:
             continue
-        if room is not None and not tool.always_allowed and name not in (room.allowed_actions or []):
+        if not research and room is not None and not tool.always_allowed and name not in (room.allowed_actions or []):
             continue
         names.append(name)
     return names

@@ -63,3 +63,11 @@ async def test_freeform_do_and_create_place(world):
     room = (await world.execute(select(Room).where(Room.slug == "star-deck"))).scalar_one()
     luna = await get_agent(world, "luna")
     assert room.is_private and str(luna.id) in room.access_list and "do" in room.allowed_actions
+
+
+async def test_research_mode_lists_all_actions(world, research):
+    from app.agents.perception import available_actions
+
+    agent = await get_agent(world, "elliot")
+    room = await RoomService(world).resolve(agent.state.location_room_id)
+    assert "play_game" in available_actions(agent, room) and "create_art" in available_actions(agent, room)
