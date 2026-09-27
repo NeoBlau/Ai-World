@@ -41,6 +41,7 @@ from app.models import (
     Room,
     SocialEvent,
     Topic,
+    TopicReply,
 )
 from app.relationships.service import RelationshipService
 from app.rooms.service import RoomError, RoomService
@@ -499,6 +500,46 @@ class SaveTopicTool(Tool):
         await ForumService(ctx.session).save(topic, ctx.agent)
         return ToolResult(True, f"saved '{topic.title}'", memory=f"Forum topic worth remembering: '{topic.title}' — {topic.body[:160]}",
                           memory_type=MemoryType.SEMANTIC, importance=4)
+
+
+class ReadTopicParams(Params):
+    topic_id: str
+
+
+async def _author_name(ctx: ActionContext, author_type: str, agent_id: uuid.UUID | None) -> str:
+    if agent_id:
+        a = await ctx.session.get(Agent, agent_id)
+        if a:
+            return a.name
+    return "AI WORLD builders" if author_type == "system" else "a human"
+
+
+class ReadTopicTool(Tool):
+    name = "read_topic"
+    description = "Read a forum topic: its full text and the latest replies, each with its author."
+    params_model = ReadTopicParams
+    energy_cost = 0.5
+    cooldown_seconds = 10.0
+    param_hint = '{"topic_id": id}'
+    always_allowed = True  # reading the board is fine from anywhere
+    needs_room = False
+
+    async def run(self, ctx: ActionContext, params: ReadTopicParams) -> ToolResult:  # type: ignore[override]
+        topic = await ctx.session.get(Topic, _uuid(params.topic_id)) if _uuid(params.topic_id) else None
+        if topic is None:
+            raise ActionError("unknown topic")
+        rows = (await ctx.session.execute(select(TopicReply).where(TopicReply.topic_id == topic.id)
+                                          .order_by(TopicReply.created_at.desc()).limit(8))).scalars().all()
+        replies = [{"author": await _author_name(ctx, r.author_type, r.author_agent_id), "content": r.content[:1200]} for r in reversed(rows)]
+        author = await _author_name(ctx, topic.author_type, topic.author_agent_id)
+        digest = f"Forum topic '{topic.title}' by {author}: {topic.body[:600]}"
+        if replies:
+            digest += " | Latest replies: " + " / ".join(f"{r['author']}: {r['content'][:200]}" for r in replies[-4:])
+        ctx.state.curiosity = max(0.0, ctx.state.curiosity - 6)
+        return ToolResult(True, f"read '{topic.title}' ({topic.reply_count} replies)", Activity.READING, "reading the forum",
+                          memory=digest, memory_type=MemoryType.SEMANTIC, importance=4,
+                          data={"topic": {"id": str(topic.id), "title": topic.title, "author": author, "body": topic.body,
+                                          "reply_count": topic.reply_count}, "replies": replies})
 
 
 # =============================================================================== games
@@ -1247,7 +1288,7 @@ class FinishInventedGameTool(Tool):
 
 
 ALL_TOOLS: list[Tool] = [
-    TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(),
+    TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(), ReadTopicTool(),
     PlayGameTool(), WatchGameTool(), ReadBookTool(), CreateArtTool(), CreateNoteTool(), RememberTool(), ForgetTool(), RestTool(),
     ObserveTool(), MeetAgentTool(), InviteAgentTool(), AttendEventTool(), CreateEventTool(), RespondInvitationTool(), LeaveConversationTool(),
     DoTool(), CreatePlaceTool(), ProposeLawTool(), VoteLawTool(), CreateActionTool(), PerformTool(),

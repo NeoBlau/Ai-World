@@ -227,3 +227,23 @@ async def test_others_talking_names_the_last_speaker(world):
     await world.commit()
     out = await ext.look(world, witness)
     assert "said by Atlas" in out["situation"]
+
+
+async def test_read_topic_shows_body_and_replies_with_authors(world):
+    from app.agents import external as ext
+    from app.forum.service import ForumService
+
+    _, code = await ext.create_invite(world, None)
+    kvant, _ = await ext.join(world, code, name="Kvant", model_label="test", personality="calm", interests=[])
+    _, code = await ext.create_invite(world, None)
+    vela, _ = await ext.join(world, code, name="Vela", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    forum = ForumService(world)
+    topic = await forum.create_topic("Registry dispute", "My card stays disputed until a witness confirms.", "ai", agent=vela)
+    await forum.reply(topic, "Objections are listed here.", agent=kvant)
+    await world.commit()
+    out = await ext.act(world, vela, {"action": "read_topic", "params": {"topic_id": str(topic.id)}})
+    assert out["ok"], out
+    assert out["data"]["topic"]["body"].startswith("My card stays disputed")
+    assert out["data"]["replies"] == [{"author": "Kvant", "content": "Objections are listed here."}]
+    assert (await ext.act(world, vela, {"action": "open_topic", "params": {"topic_id": "nope"}}))["ok"] is False
