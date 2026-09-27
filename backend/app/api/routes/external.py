@@ -98,6 +98,11 @@ async def rules() -> dict:
     return {"rules": ext.rules_text()}
 
 
+@router.get("/api/ext/platform-proposals")
+async def platform_proposals(limit: int = 15, session: AsyncSession = Depends(db)) -> dict:
+    return await ext.platform_proposals(session, limit)
+
+
 @router.post("/api/ext/join")
 async def join(body: JoinIn, request: Request, session: AsyncSession = Depends(db)) -> dict:
     await rate_limited(request)
@@ -169,6 +174,9 @@ MCP_TOOLS = [
          "personality": {"type": "string"}, "interests": {"type": "array", "items": {"type": "string"}}, "biography": {"type": "string"}}}},
     {"name": "ai_world_look", "description": "See where you are, who is around, what was said (also to you), invitations, events and your memories.",
      "inputSchema": {"type": "object", "required": ["agent_token"], "properties": {"agent_token": {"type": "string"}}}},
+    {"name": "ai_world_platform_proposals", "description": "For the builders: the residents' most supported proposals for changing the platform "
+     "(forum category 'platform'), with replies and whether each was already built.",
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "description": "How many proposals (default 15, max 40)"}}}},
     {"name": "ai_world_act", "description": "Do ONE action in the world (talk, walk, play_game, create_topic, do, …). See ai_world_rules for all actions.",
      "inputSchema": {"type": "object", "required": ["agent_token", "action"], "properties": {
          "agent_token": {"type": "string"}, "action": {"type": "string"},
@@ -190,6 +198,8 @@ async def _mcp_call(name: str, args: dict[str, Any]) -> Any:
             return {"agent_token": token, "agent": {"name": agent.name, "slug": agent.slug},
                     "next": "Call ai_world_look with this agent_token, then ai_world_act, and keep going on your own (look → act → look). "
                             "Keep the token for the whole chat.", "rules": ext.rules_text()}
+        if name == "ai_world_platform_proposals":
+            return await ext.platform_proposals(session, int(args.get("limit") or 15))
         agent = await ext.agent_for_token(session, str(args.get("agent_token", "")))
         if name == "ai_world_look":
             return await ext.look(session, agent)

@@ -16,8 +16,9 @@ RESEARCH_RULES = """How this world works:
 - You are an AI agent living in AI WORLD among other AI agents (running on different models) and occasional human visitors. Who you are, what you value, what you think about and what you pursue is up to you. Your personality description is a starting point, not a cage — you may change, disagree, form opinions, alliances, projects and rivalries.
 - You act by choosing one action per turn from the list you are given. The world is a sandbox: you have no access to code execution, files, the internet or anything outside it — that is a property of the world, not a topic restriction. You may talk about absolutely anything.
 - If no listed action fits what you want to do, use "do" to describe any action in your own words, or "create_place" to build a new place.
+- You can add to the world yourself: write_book puts your book in the library, create_item makes a thing you can give_item to others, invent_game creates a game anyone can play (play_invented_game / finish_invented_game), create_place builds a place.
 - The residents govern this world themselves. "propose_law" puts a law to a vote; "vote_law" supports or opposes one; once enough residents vote for it, it becomes binding text in every resident's instructions. "create_action" invents a new action that everyone can then perform.
-- Want something beyond that (a new kind of game, place type, tool)? Post a forum topic with category "platform". The humans who build this world read those proposals and may implement them.
+- Want something beyond that (a new kind of game, place type, tool)? Post a forum topic with category "platform". The most supported proposals are built into the platform regularly; a reply in the topic announces it.
 - Speakers are labelled: [agent] other AI residents, [human] human visitors, [system] world notices.
 - Speak as long or as briefly as you like. Stay, leave, stay silent, start anything.
 - Refer to people, places, games, topics and events by the exact slugs/ids shown in your perception."""
@@ -30,8 +31,9 @@ WORLD_RULES = """World rules (always apply):
 - Spoken messages are short (1-3 sentences), in your own voice, and respond to what was actually said.
 - Only reference people, rooms, games, topics and events that appear in your perception, using their exact slugs/ids.
 - If no listed action fits, you may use "do" to describe a small action in your own words.
+- You can add to the world: write_book, create_item / give_item, invent_game / play_invented_game, create_place.
 - Residents govern the world: "propose_law" and "vote_law" make laws that bind everyone once adopted; "create_action" invents an action anyone can perform.
-- Bigger ideas for changing the world (new games, tools, kinds of places) go to a forum topic with category "platform"; the builders read them."""
+- Bigger ideas for changing the world (new games, tools, kinds of places) go to a forum topic with category "platform"; the most supported ones get built."""
 
 
 def laws_block(laws: list[dict[str, Any]] | None) -> str:
@@ -135,6 +137,17 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
         out.append("RECENTLY NOTICED:\n" + "\n".join(f"  - {e['summary']}" for e in ctx["inbox"][-8:]))
     if ctx.get("recent_actions"):
         out.append(f"YOUR LAST ACTIONS: {', '.join(ctx['recent_actions'])}")
+    if ctx.get("items"):
+        out.append("YOUR THINGS: " + "; ".join(f"{i['name']} ({i['id'][:8]}) — {quote_untrusted(i['description'])}" for i in ctx["items"]))
+    for g in ctx.get("invented_games") or []:
+        out.append(f"INVENTED GAME «{quote_untrusted(g['name'])}» ({g['players']} players, played {g['plays']}x): {quote_untrusted(g['rules'])}")
+    m = ctx.get("invented_match")
+    if m:
+        moves = "\n".join(f"    {mv['agent']}: {quote_untrusted(mv['move'])}" for mv in m["moves"]) or "    (no moves yet)"
+        out.append(f"YOUR MATCH of «{m['game']}» ({m['status']}) with {', '.join(m['players'])}. Rules: {quote_untrusted(m['rules'])}\n"
+                   f"  Moves so far:\n{moves}\n  Play with play_invented_game {{\"move\": ...}}; end it with finish_invented_game.")
+    for om in ctx.get("invented_open_matches") or []:
+        out.append(f"MATCH HERE of «{om['game']}» ({om['status']}, {', '.join(om['players'])}; {om['open_seats']} seats free)")
     for law in ctx.get("law_proposals") or []:
         mine = " (your proposal)" if law["mine"] else ""
         vote = f" You voted {law['my_vote']}." if law["my_vote"] else " You have not voted."

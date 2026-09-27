@@ -212,7 +212,7 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
     books_ctx = []
     if "read_book" in avail:
         books_ctx = [{"id": str(b.id), "title": b.title, "author": b.author, "topics": b.topics}
-                     for b in (await session.execute(select(Book).limit(12))).scalars()]
+                     for b in (await session.execute(select(Book).order_by(Book.created_at.desc().nulls_last()).limit(12))).scalars()]
 
     # self-government: laws in force, proposals awaiting votes, actions invented by residents
     from app.governance.service import GovernanceService
@@ -226,6 +226,41 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
                       "mine": law.proposer_agent_id == agent.id} for law in open_laws]
     custom_ctx = [{"name": a.name, "description": a.description, "only_here": a.room_id is not None, "uses": a.uses}
                   for a in await gov.actions_for_room(room.id if room else None)]
+
+    # things residents made: my items, invented games, my match of an invented game
+    from app.governance.works import WorksService
+    from app.models import CustomGame
+
+    works = WorksService(session)
+    items_ctx = [{"id": str(i.id), "name": i.name, "description": i.description[:200]} for i in await works.items_of(agent.id)]
+    games_rows = list((await session.execute(select(CustomGame).where(CustomGame.active.is_(True))
+                                             .order_by(CustomGame.plays.desc(), CustomGame.created_at.desc()).limit(8))).scalars())
+    games_by_id = {g.id: g for g in games_rows}
+    invented_games_ctx = [{"name": g.name, "rules": g.rules[:300], "players": f"{g.min_players}-{g.max_players}", "plays": g.plays} for g in games_rows]
+    match_ctx = None
+    my_match = await works.active_match(agent.id)
+    player_names: dict[str, str] = {}
+
+    async def _names(ids: list[str]) -> list[str]:
+        out = []
+        for pid in ids:
+            if pid not in player_names:
+                a = await session.get(Agent, uuid.UUID(pid))
+                player_names[pid] = a.name if a else "?"
+            out.append(player_names[pid])
+        return out
+
+    if my_match is not None:
+        g = games_by_id.get(my_match.game_id) or await session.get(CustomGame, my_match.game_id)
+        match_ctx = {"id": str(my_match.id), "game": g.name if g else "?", "rules": g.rules[:1500] if g else "", "status": my_match.status,
+                     "players": await _names(my_match.players), "moves": (my_match.log or [])[-12:]}
+    open_matches_ctx = []
+    for m in await works.open_matches(room.id if room else None):
+        if my_match is not None and m.id == my_match.id:
+            continue
+        g = games_by_id.get(m.game_id) or await session.get(CustomGame, m.game_id)
+        open_matches_ctx.append({"id": str(m.id), "game": g.name if g else "?", "status": m.status, "players": await _names(m.players),
+                                 "open_seats": max(0, (g.max_players if g else 0) - len(m.players))})
 
     recent_actions = [a for (a,) in (await session.execute(
         select(ActivityLog.action).where(ActivityLog.agent_id == agent.id).order_by(ActivityLog.started_at.desc()).limit(6)
@@ -273,6 +308,10 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
         "laws": laws_ctx,
         "law_proposals": proposals_ctx,
         "custom_actions": custom_ctx,
+        "items": items_ctx,
+        "invented_games": invented_games_ctx,
+        "invented_match": match_ctx,
+        "invented_open_matches": open_matches_ctx,
     }
     p = Perception(ctx, room, present)
     score_salience(p, agent.id)

@@ -73,7 +73,7 @@ async def test_mcp_protocol(world, client):
     assert init["result"]["serverInfo"]["name"] == "ai-world"
     assert (await client.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"})).status_code == 202
     tools = (await client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).json()["result"]["tools"]
-    assert {t["name"] for t in tools} == {"ai_world_rules", "ai_world_join", "ai_world_look", "ai_world_act"}
+    assert {t["name"] for t in tools} == {"ai_world_rules", "ai_world_join", "ai_world_look", "ai_world_act", "ai_world_platform_proposals"}
 
     import json
 

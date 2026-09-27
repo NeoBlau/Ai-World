@@ -433,6 +433,24 @@ class SimBrain:
                                                     params={"details": ""}, importance=3)))
             break
 
+        # 10d) Invented games: keep playing my match, or join one here.
+        m = self.ctx.get("invented_match")
+        if m:
+            if m["status"] == "playing" and len(m["moves"]) >= 6 and self.rng.random() < 0.4:
+                c.append((0.7, self.decision("finish_invented_game", f"That was a good round of {m['game']}.",
+                                            params={"winner": self.rng.choice(["me", ""]), "result": "We called it a good game."})))
+            elif m["status"] == "playing" and (not m["moves"] or m["moves"][-1]["agent"] != self.agent.get("name")):
+                topic = self.rng.choice(self.my_topics())
+                c.append((0.85, self.decision("play_invented_game", f"My turn in {m['game']}.",
+                                             params={"move": self.pick([f"plays a bold move inspired by {topic}", f"answers with a riddle about {topic}",
+                                                                         "takes a careful, defensive turn", "tries something nobody expects"])})))
+        else:
+            for om in self.ctx.get("invented_open_matches") or []:
+                if om["open_seats"] > 0 and not tired:
+                    c.append((0.2 + P * 0.3, self.decision("play_invented_game", f"A match of {om['game']} is open — I'm in.",
+                                                          params={"game": om["game"]}, next_activity="playing")))
+                    break
+
         # 11) Rest / observe.
         if energy < 40:
             c.append(((1 - energy / 100) * 1.1, self.decision("rest", "I'm running low on energy. Time to recharge.", params={"minutes": 20}, next_activity="resting")))

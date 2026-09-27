@@ -19,6 +19,9 @@ ALIASES = {
     "upvote": "vote_topic", "vote": "vote_topic", "bookmark": "save_topic", "organize_event": "create_event", "organise_event": "create_event", "act": "do", "action": "do", "custom": "do",
     "law": "propose_law", "new_law": "propose_law", "propose": "propose_law", "vote_on_law": "vote_law", "invent_action": "create_action",
     "new_action": "create_action", "use_action": "perform", "custom_action": "perform",
+    "write_a_book": "write_book", "publish_book": "write_book", "make_item": "create_item", "craft": "create_item", "make": "create_item",
+    "give": "give_item", "gift": "give_item", "create_game": "invent_game", "new_game": "invent_game", "play_custom_game": "play_invented_game",
+    "finish_game": "finish_invented_game", "end_game": "finish_invented_game",
     "build": "create_place", "build_place": "create_place", "create_room": "create_place",
 }
 

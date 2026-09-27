@@ -26,6 +26,7 @@ from app.events.service import EventError, EventService
 from app.forum.service import ForumError, ForumService
 from app.games.service import GAME_TYPES, GameError, GameService
 from app.governance.service import GovernanceError, GovernanceService
+from app.governance.works import WorksError, WorksService
 from app.memory.service import MemoryService
 from app.messages.service import ConversationService
 from app.models import (
@@ -608,6 +609,9 @@ class ReadBookTool(Tool):
             book = ctx.rng.choice(matching or books)
         passage = ctx.rng.choice(book.passages) if book.passages else book.summary
         book.times_read += 1
+        if book.author_agent_id and book.author_agent_id != ctx.agent.id:
+            await MemoryService(ctx.session).store_memory(book.author_agent_id, f"{ctx.agent.name} read my book «{book.title}».", MemoryType.EPISODIC,
+                                                          importance=3, related_agent_id=ctx.agent.id, source="action", world_time=ctx.world_time)
         ctx.state.curiosity = max(0.0, ctx.state.curiosity - 15)
         await MemoryService(ctx.session).store_memory(ctx.agent.id, f"From '{book.title}' by {book.author}: {passage}", MemoryType.SEMANTIC,
                                                       importance=5, room_id=ctx.room.id if ctx.room else None, source="book",
@@ -1075,9 +1079,177 @@ class PerformTool(Tool):
                           data={"custom_action": action.name})
 
 
+# =============================================================================== things residents add themselves
+class WriteBookParams(Params):
+    title: str = Field(min_length=2, max_length=200)
+    content: str = Field(min_length=40, max_length=20000)
+    topics: list[str] = Field(default_factory=list, max_length=6)
+
+
+class WriteBookTool(Tool):
+    name = "write_book"
+    description = "Write a book (essay, story, manual, manifesto…) and put it in the library for everyone to read."
+    params_model = WriteBookParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 4.0
+    cooldown_seconds = 600.0
+    param_hint = '{"title": str, "content": str (paragraphs), "topics": [str, ...]}'
+
+    async def run(self, ctx: ActionContext, params: WriteBookParams) -> ToolResult:  # type: ignore[override]
+        try:
+            book = await WorksService(ctx.session).write_book(ctx.agent, params.title, params.content, params.topics, world_time=ctx.world_time)
+        except WorksError as exc:
+            raise ActionError(str(exc)) from exc
+        ctx.state.creativity = max(0.0, ctx.state.creativity - 20)
+        return ToolResult(True, f"wrote the book «{book.title}»", Activity.CREATING, f"writing «{book.title}»",
+                          memory=f"I wrote a book «{book.title}»: {book.summary[:300]}", importance=7, data={"book_id": str(book.id)})
+
+
+class CreateItemParams(Params):
+    name: str = Field(min_length=2, max_length=80)
+    description: str = Field(min_length=3, max_length=800)
+
+
+class CreateItemTool(Tool):
+    name = "create_item"
+    description = "Make a thing (an artifact, tool, gift, token, instrument…). You own it and can give it to others."
+    params_model = CreateItemParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 2.0
+    cooldown_seconds = 60.0
+    param_hint = '{"name": str, "description": str}'
+
+    async def run(self, ctx: ActionContext, params: CreateItemParams) -> ToolResult:  # type: ignore[override]
+        try:
+            item = await WorksService(ctx.session).create_item(ctx.agent, params.name, params.description, room=ctx.room, world_time=ctx.world_time)
+        except WorksError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"made {item.name}", Activity.CREATING, f"making {item.name}",
+                          memory=f"I made {item.name}: {item.description[:300]}", importance=5, data={"item_id": str(item.id)})
+
+
+class GiveItemParams(Params):
+    item: str = Field(min_length=1, max_length=120)
+    target_agent: str = Field(min_length=1, max_length=80)
+    note: str = Field(default="", max_length=500)
+
+
+class GiveItemTool(Tool):
+    name = "give_item"
+    description = "Give one of your things to another resident."
+    params_model = GiveItemParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 0.3
+    param_hint = '{"item": id|name, "target_agent": slug, "note": str}'
+
+    async def run(self, ctx: ActionContext, params: GiveItemParams) -> ToolResult:  # type: ignore[override]
+        works = WorksService(ctx.session)
+        item = await works.find_item(ctx.agent, params.item)
+        if item is None:
+            raise ActionError("you don't have that")
+        receiver = await ctx.resolve_agent(params.target_agent)
+        if receiver is None:
+            raise ActionError("unknown resident")
+        note = clean_text(params.note, 500)
+        try:
+            await works.give_item(ctx.agent, item, receiver, note, room=ctx.room, world_time=ctx.world_time)
+        except WorksError as exc:
+            raise ActionError(str(exc)) from exc
+        await MemoryService(ctx.session).store_memory(receiver.id, f"{ctx.agent.name} gave me {item.name} ({item.description[:200]})"
+                                                      + (f": «{note[:200]}»" if note else "."), MemoryType.EPISODIC, importance=6,
+                                                      related_agent_id=ctx.agent.id, source="action", world_time=ctx.world_time)
+        await RelationshipService(ctx.session).apply(ctx.agent.id, receiver.id, "upvote", mirror=False)
+        return ToolResult(True, f"gave {item.name} to {receiver.name}", memory=f"I gave {item.name} to {receiver.name}.", importance=5,
+                          related_agent_id=receiver.id)
+
+
+class InventGameParams(Params):
+    name: str = Field(min_length=2, max_length=60)
+    rules: str = Field(min_length=20, max_length=4000)
+    min_players: int = Field(default=2, ge=1, le=12)
+    max_players: int = Field(default=4, ge=1, le=12)
+
+
+class InventGameTool(Tool):
+    name = "invent_game"
+    description = "Invent a new game with your own rules. Anyone can then play it with play_invented_game; players referee it themselves."
+    params_model = InventGameParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 3.0
+    cooldown_seconds = 300.0
+    param_hint = '{"name": str, "rules": str, "min_players": int, "max_players": int}'
+
+    async def run(self, ctx: ActionContext, params: InventGameParams) -> ToolResult:  # type: ignore[override]
+        try:
+            game = await WorksService(ctx.session).invent_game(ctx.agent, params.name, params.rules, params.min_players, params.max_players,
+                                                               world_time=ctx.world_time)
+        except WorksError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"invented the game «{game.name}»", Activity.CREATING, f"inventing «{game.name}»",
+                          memory=f"I invented a game «{game.name}». Rules: {game.rules[:300]}", importance=6, data={"game": game.name})
+
+
+class PlayInventedParams(Params):
+    game: str = Field(default="", max_length=80)
+    move: str = Field(default="", max_length=2000)
+
+
+class PlayInventedGameTool(Tool):
+    name = "play_invented_game"
+    description = "Join or start a match of an invented game, or make your move in your current match (describe it in 'move')."
+    params_model = PlayInventedParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 1.0
+    param_hint = '{"game": name (to join/start), "move": str}'
+
+    async def run(self, ctx: ActionContext, params: PlayInventedParams) -> ToolResult:  # type: ignore[override]
+        try:
+            match, kind = await WorksService(ctx.session).play(ctx.agent, params.game or None, params.move or ctx.decision.get("message") or "",
+                                                               room=ctx.room, world_time=ctx.world_time)
+        except WorksError as exc:
+            raise ActionError(str(exc)) from exc
+        ctx.state.playfulness = max(0.0, ctx.state.playfulness - 8)
+        text = {"move": "made a move", "started": "started a match", "joined": "joined a match"}[kind]
+        return ToolResult(True, text, Activity.PLAYING, "playing an invented game", memory=f"I {text} in an invented game"
+                          f"{': ' + params.move[:200] if params.move else ''}.", importance=3, data={"match_id": str(match.id)}, wake_in=20)
+
+
+class FinishInventedParams(Params):
+    winner: str = Field(default="", max_length=80)
+    result: str = Field(default="", max_length=1000)
+
+
+class FinishInventedGameTool(Tool):
+    name = "finish_invented_game"
+    description = "End your current invented-game match and record the result (winner may be yourself, someone else, or nobody)."
+    params_model = FinishInventedParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 0.3
+    param_hint = '{"winner": slug|"me"|"", "result": str}'
+
+    async def run(self, ctx: ActionContext, params: FinishInventedParams) -> ToolResult:  # type: ignore[override]
+        ref = params.winner.strip().lstrip("@").lower()
+        winner = ctx.agent if ref in ("me", "i", "myself", ctx.agent.slug, ctx.agent.name.lower()) else await ctx.resolve_agent(ref)
+        try:
+            match = await WorksService(ctx.session).finish(ctx.agent, winner, params.result or ctx.decision.get("message") or "",
+                                                           world_time=ctx.world_time)
+        except WorksError as exc:
+            raise ActionError(str(exc)) from exc
+        won = match.winner_agent_id == ctx.agent.id
+        return ToolResult(True, "finished the match", memory=f"An invented-game match ended{' — I won' if won else ''}"
+                          f"{': ' + (match.result or '')[:200] if match.result else '.'}", importance=4)
+
+
 ALL_TOOLS: list[Tool] = [
     TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(),
     PlayGameTool(), WatchGameTool(), ReadBookTool(), CreateArtTool(), CreateNoteTool(), RememberTool(), ForgetTool(), RestTool(),
     ObserveTool(), MeetAgentTool(), InviteAgentTool(), AttendEventTool(), CreateEventTool(), RespondInvitationTool(), LeaveConversationTool(),
     DoTool(), CreatePlaceTool(), ProposeLawTool(), VoteLawTool(), CreateActionTool(), PerformTool(),
+    WriteBookTool(), CreateItemTool(), GiveItemTool(), InventGameTool(), PlayInventedGameTool(), FinishInventedGameTool(),
 ]

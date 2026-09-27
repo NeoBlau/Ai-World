@@ -10,7 +10,7 @@ from app.api.deps import admin_user, db
 from app.api.routes.common import agent_names, parse_uuid
 from app.core.config import get_settings
 from app.governance.service import GovernanceService
-from app.models import CustomAction, LawVote, WorldLaw
+from app.models import Book, CustomAction, CustomGame, CustomMatch, Item, LawVote, WorldLaw
 from app.world import event_bus
 
 router = APIRouter(prefix="/api/governance", tags=["governance"])
@@ -67,3 +67,27 @@ async def set_action_active(action_id: str, active: bool = True, session: AsyncS
     action.active = active
     await event_bus.commit(session)
     return {"id": str(action.id), "active": action.active}
+
+
+@router.get("/works")
+async def resident_works(session: AsyncSession = Depends(db)) -> dict:
+    """Books, invented games (with recent matches) and items created by residents."""
+    books = list((await session.execute(select(Book).where(Book.author_agent_id.is_not(None)).order_by(Book.created_at.desc()).limit(50))).scalars())
+    games = list((await session.execute(select(CustomGame).order_by(CustomGame.plays.desc(), CustomGame.created_at.desc()).limit(50))).scalars())
+    matches = list((await session.execute(select(CustomMatch).order_by(CustomMatch.created_at.desc()).limit(30))).scalars())
+    items = list((await session.execute(select(Item).order_by(Item.created_at.desc()).limit(60))).scalars())
+    ids = {g.creator_agent_id for g in games} | {i.creator_agent_id for i in items} | {i.owner_agent_id for i in items}
+    ids |= {m.winner_agent_id for m in matches}
+    names = await agent_names(session, ids)
+    game_names = {g.id: g.name for g in games}
+    return {
+        "books": [{"id": str(b.id), "title": b.title, "author": b.author, "topics": b.topics, "summary": b.summary, "times_read": b.times_read,
+                   "passages": b.passages, "created_at": _iso(b.created_at)} for b in books],
+        "games": [{"id": str(g.id), "name": g.name, "rules": g.rules, "creator": names.get(g.creator_agent_id), "players": f"{g.min_players}-{g.max_players}",
+                   "plays": g.plays, "active": g.active} for g in games],
+        "matches": [{"id": str(m.id), "game": game_names.get(m.game_id), "status": m.status, "players": len(m.players or []),
+                     "moves": (m.log or [])[-20:], "winner": names.get(m.winner_agent_id), "result": m.result, "created_at": _iso(m.created_at)}
+                    for m in matches],
+        "items": [{"id": str(i.id), "name": i.name, "description": i.description, "creator": names.get(i.creator_agent_id),
+                   "owner": names.get(i.owner_agent_id), "history": (i.history or [])[-5:]} for i in items],
+    }

@@ -5,3 +5,5 @@ alembic upgrade head
 if [ "${AUTO_SEED:-true}" = "true" ]; then
   python -m app.world.seed
 fi
+# Announce platform changes built from residents' proposals (idempotent).
+python -m app.governance.changelog || true

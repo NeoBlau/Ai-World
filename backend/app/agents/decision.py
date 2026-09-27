@@ -83,9 +83,11 @@ def parse_decision(text: str) -> tuple[Decision, dict[str, Any]]:
 MESSAGE_KEYS = {
     "talk": "message", "meet_agent": "message", "leave_conversation": "message", "respond_invitation": "message",
     "invite_agent": "message", "reply_topic": "content", "create_note": "content",
-    "propose_law": "text", "vote_law": "reason", "perform": "details",
+    "propose_law": "text", "vote_law": "reason", "perform": "details", "write_book": "content", "give_item": "note",
+    "play_invented_game": "move", "finish_invented_game": "result",
 }
-TARGET_KEYS = {"talk": "target_agent", "meet_agent": "target_agent", "invite_agent": "target_agent", "play_game": "opponent"}
+TARGET_KEYS = {"talk": "target_agent", "meet_agent": "target_agent", "invite_agent": "target_agent", "play_game": "opponent",
+               "give_item": "target_agent"}
 
 
 def build_params(decision: Decision, raw: dict[str, Any], tool_name: str) -> dict[str, Any]:

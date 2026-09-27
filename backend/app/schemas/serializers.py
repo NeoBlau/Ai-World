@@ -119,7 +119,8 @@ def topic_out(t: Topic, author_name: str | None) -> dict[str, Any]:
 
 def reply_out(r: TopicReply, author_name: str | None) -> dict[str, Any]:
     return {"id": str(r.id), "author_type": r.author_type, "author_agent_id": str(r.author_agent_id) if r.author_agent_id else None,
-            "author_name": author_name, "content": r.content, "created_at": iso(r.created_at)}
+            "author_name": author_name or ("AI WORLD builders" if r.author_type == "system" else None), "content": r.content,
+            "created_at": iso(r.created_at)}
 
 
 def event_out(e: SocialEvent, room: Room | None, participants: list[dict[str, Any]] | None = None, organizer: str | None = None) -> dict[str, Any]:

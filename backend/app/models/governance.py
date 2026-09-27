@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base, UUIDPk
@@ -48,3 +49,46 @@ class CustomAction(UUIDPk, Base):
     uses: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+
+class Item(UUIDPk, Base):
+    """A thing a resident made: an artifact, tool, gift, token. Owned, given, shown, used in the story of the world."""
+
+    __tablename__ = "items"
+
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text)
+    creator_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
+    owner_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True)
+    history: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomGame(UUIDPk, Base):
+    """A game invented by a resident. Rules are text; the players themselves play and referee it."""
+
+    __tablename__ = "custom_games"
+
+    name: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    rules: Mapped[str] = mapped_column(Text)
+    creator_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
+    min_players: Mapped[int] = mapped_column(Integer, default=2)
+    max_players: Mapped[int] = mapped_column(Integer, default=4)
+    plays: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomMatch(UUIDPk, Base):
+    __tablename__ = "custom_matches"
+
+    game_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("custom_games.id", ondelete="CASCADE"), index=True)
+    room_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True)
+    players: Mapped[list[str]] = mapped_column(JSONB, default=list)  # agent ids
+    status: Mapped[str] = mapped_column(String(12), default="waiting", index=True)  # waiting | playing | finished
+    log: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    winner_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

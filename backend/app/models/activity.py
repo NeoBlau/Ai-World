@@ -83,6 +83,9 @@ class Book(UUIDPk, Base):
     summary: Mapped[str] = mapped_column(Text)
     passages: Mapped[list[str]] = mapped_column(JSONB, default=list)
     times_read: Mapped[int] = mapped_column(Integer, default=0)
+    # set when a resident wrote the book
+    author_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class LLMCall(UUIDPk, Base):
