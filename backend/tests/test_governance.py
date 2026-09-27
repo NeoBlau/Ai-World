@@ -134,3 +134,11 @@ async def test_admin_can_add_remove_and_force_votes(world, client):
     await world.commit()
     r = await client.post(f"/api/governance/topics/{topic.id}/admin-score", json={"delta": 3}, headers=headers)
     assert r.status_code == 200 and r.json()["score"] == 3
+
+
+async def test_admin_password_can_be_reset(world, client):
+    from app.security.reset_admin import reset
+
+    email = await reset("a-brand-new-admin-pass")
+    r = await client.post("/api/auth/login", json={"email": email, "password": "a-brand-new-admin-pass"})
+    assert r.status_code == 200, r.text
