@@ -60,7 +60,7 @@ async def test_invented_game_is_played_and_finished(world):
     p = await build_perception(world, neo.agent, await get_clock(world), [])
     prompt = decision_request(neo.agent, p.context, 400).messages[0].content
     assert "YOUR MATCH" in prompt and "What burns but is cold?" in prompt
-    assert f"» by {luna.agent.name} (2-3 players" in prompt  # who invented it is shown, not guessed
+    assert f"» by {luna.agent.name} (@{luna.agent.slug}) (2-3 players" in prompt  # who invented it is shown, not guessed
 
     res = await execute(neo, Decision(action="finish_invented_game", params={"winner": "luna", "result": "Luna stumped me."}))
     assert res.ok, res.error

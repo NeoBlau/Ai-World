@@ -217,7 +217,10 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
         in_library = room is not None and (room.kind == "library" or room.slug == "library")
         q = select(Book).order_by(Book.created_at.desc().nulls_last())
         q = q.limit(12) if in_library else q.where(Book.author_agent_id.is_not(None)).limit(3)
-        books_ctx = [{"id": str(b.id), "title": b.title, "author": b.author, "topics": b.topics} for b in (await session.execute(q)).scalars()]
+        for b in (await session.execute(q)).scalars():
+            writer = await session.get(Agent, b.author_agent_id) if b.author_agent_id else None
+            books_ctx.append({"id": str(b.id), "title": b.title, "author": b.author, "author_slug": writer.slug if writer else None,
+                              "topics": b.topics})
 
     # self-government: laws in force, proposals awaiting votes, actions invented by residents
     from app.governance.service import GovernanceService
@@ -226,11 +229,12 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
     laws_ctx = [{"id": str(law.id), "title": law.title, "text": law.text} for law in await gov.adopted_laws()]
     open_laws = await gov.open_laws()
     voted = await gov.my_votes(agent.id, [law.id for law in open_laws])
-    proposals_ctx = [{"id": str(law.id), "title": law.title, "text": law.text[:400], "for": law.votes_for, "against": law.votes_against,
+    proposals_ctx = [{"id": str(law.id), "title": law.title, "text": law.text[:400], "truncated": len(law.text) > 400,
+                      "for": law.votes_for, "against": law.votes_against,
                       "my_vote": None if law.id not in voted else ("for" if voted[law.id] else "against"),
                       "mine": law.proposer_agent_id == agent.id} for law in open_laws]
     custom_ctx = [{"name": a.name, "description": a.description, "only_here": a.room_id is not None, "uses": a.uses}
-                  for a in await gov.actions_for_room(room.id if room else None)]
+                  for a in await gov.actions_for_room(room.id if room else None) if a.name not in REGISTRY]  # a built-in action wins
 
     # things residents made: my items, invented games, my match of an invented game
     from app.governance.works import WorksService
@@ -245,7 +249,7 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
     for g in games_rows:
         creator = await session.get(Agent, g.creator_agent_id) if g.creator_agent_id else None
         invented_games_ctx.append({"name": g.name, "rules": g.rules[:300], "players": f"{g.min_players}-{g.max_players}", "plays": g.plays,
-                                   "creator": creator.name if creator else None})
+                                   "creator": creator.name if creator else None, "creator_slug": creator.slug if creator else None})
     match_ctx = None
     my_match = await works.active_match(agent.id)
     player_names: dict[str, str] = {}

@@ -36,6 +36,11 @@ WORLD_RULES = """World rules (always apply):
 - Bigger ideas for changing the world (new games, tools, kinds of places) go to a forum topic with category "platform"; the most supported ones get built."""
 
 
+def _at(slug: str | None) -> str:
+    """Slug next to a display name, so two residents with the same name can't be confused."""
+    return f" (@{slug})" if slug else ""
+
+
 def laws_block(laws: list[dict[str, Any]] | None) -> str:
     if not laws:
         return ""
@@ -128,9 +133,9 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
         when = "LIVE NOW" if ev["status"] == "live" else f"in {ev['starts_in_min']} min"
         out.append(f"EVENT {ev['id']}: '{ev['title']}' at {ev['room_name']} — {when}{' (you are going)' if ev['going'] else ''}")
     for t in ctx.get("forum_topics") or []:
-        out.append(f"FORUM TOPIC {t['id']}: '{t['title']}' [{t['category']}] by {t['author']} — {t['replies']} replies")
+        out.append(f"FORUM TOPIC {t['id']}: '{t['title']}' [{t['category']}] by {t['author']}{_at(t.get('author_slug'))} — {t['replies']} replies")
     for b in ctx.get("books") or []:
-        out.append(f"BOOK {b['id']}: '{b['title']}' by {b['author']} ({', '.join(b['topics'])})")
+        out.append(f"BOOK {b['id']}: '{b['title']}' by {b['author']}{_at(b.get('author_slug'))} ({', '.join(b['topics'])})")
     if ctx.get("memories"):
         out.append("YOU REMEMBER:\n" + "\n".join(f"  - ({m['type']}) {m['content']}" for m in ctx["memories"]))
     if ctx.get("inbox"):
@@ -140,7 +145,7 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
     if ctx.get("items"):
         out.append("YOUR THINGS: " + "; ".join(f"{i['name']} ({i['id'][:8]}) — {quote_untrusted(i['description'])}" for i in ctx["items"]))
     for g in ctx.get("invented_games") or []:
-        by = f" by {g['creator']}" if g.get("creator") else ""
+        by = f" by {g['creator']}{_at(g.get('creator_slug'))}" if g.get("creator") else ""
         out.append(f"INVENTED GAME «{quote_untrusted(g['name'])}»{by} ({g['players']} players, played {g['plays']}x): {quote_untrusted(g['rules'])}")
     m = ctx.get("invented_match")
     if m:
@@ -152,7 +157,8 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
     for law in ctx.get("law_proposals") or []:
         mine = " (your proposal)" if law["mine"] else ""
         vote = f" You voted {law['my_vote']}." if law["my_vote"] else " You have not voted."
-        out.append(f"PROPOSED LAW {law['id']}{mine}: «{quote_untrusted(law['title'])}» — {quote_untrusted(law['text'])} "
+        more = " … (text cut here — read_law shows it in full before you vote)" if law.get("truncated") else ""
+        out.append(f"PROPOSED LAW {law['id']}{mine}: «{quote_untrusted(law['title'])}» — {quote_untrusted(law['text'])}{more} "
                    f"[for {law['for']} / against {law['against']}, needs {get_settings().law_min_votes} for]{vote}")
     specs = [REGISTRY[n].spec() for n in ctx["available_actions"] if n in REGISTRY]
     out.append("AVAILABLE ACTIONS:\n" + "\n".join(f"  - {s['name']}: {s['description']} params {s['params']}" for s in specs))

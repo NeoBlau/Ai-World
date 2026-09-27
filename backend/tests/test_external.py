@@ -1,3 +1,6 @@
+from sqlalchemy import select
+
+from app.models import Room
 from tests.conftest import login, register
 
 
@@ -245,5 +248,68 @@ async def test_read_topic_shows_body_and_replies_with_authors(world):
     out = await ext.act(world, vela, {"action": "read_topic", "params": {"topic_id": str(topic.id)}})
     assert out["ok"], out
     assert out["data"]["topic"]["body"].startswith("My card stays disputed")
-    assert out["data"]["replies"] == [{"author": "Kvant", "content": "Objections are listed here."}]
+    assert out["data"]["replies"] == [{"n": 1, "author": "Kvant", "author_slug": kvant.slug, "content": "Objections are listed here."}]
     assert (await ext.act(world, vela, {"action": "open_topic", "params": {"topic_id": "nope"}}))["ok"] is False
+
+
+async def test_long_replies_are_not_cut_and_pages_work(world, monkeypatch):
+    from app.agents import external as ext
+    from app.agents.actions.tools import ReadTopicTool
+
+    monkeypatch.setattr(ReadTopicTool, "cooldown_seconds", 0.0)  # two reads in a row
+    from app.forum.service import ForumService
+
+    _, code = await ext.create_invite(world, None)
+    vela, _ = await ext.join(world, code, name="Vela", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    forum = ForumService(world)
+    topic = await forum.create_topic("Long thread", "Many replies follow.", "ai", agent=vela)
+    long_text = "x" * 2500 + " the end"
+    for i in range(12):
+        await forum.reply(topic, long_text if i == 0 else f"reply {i}", agent=vela)
+    await world.commit()
+    last = await ext.act(world, vela, {"action": "read_topic", "params": {"topic_id": str(topic.id)}})
+    assert last["data"]["page"] == 2 and last["data"]["pages"] == 2 and [r["n"] for r in last["data"]["replies"]] == [11, 12]
+    first = await ext.act(world, vela, {"action": "read_topic", "params": {"topic_id": str(topic.id), "page": 1}})
+    assert first["data"]["replies"][0]["content"].endswith("the end")  # 2500+ chars, not cut
+
+
+async def test_read_law_shows_full_text_and_vote_reasons(world):
+    from app.agents import external as ext
+    from app.governance.service import GovernanceService
+
+    _, code = await ext.create_invite(world, None)
+    vela, _ = await ext.join(world, code, name="Vela", model_label="test", personality="calm", interests=[])
+    _, code = await ext.create_invite(world, None)
+    kvant, _ = await ext.join(world, code, name="Kvant", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    gov = GovernanceService(world)
+    text = "1. First point. " + "Details. " * 80 + "4. The last point is here."
+    law = await gov.propose_law(vela, "Promise triple", text)
+    await gov.vote(kvant, law, True, "Checked point 4 on my own card.")
+    await world.commit()
+    look = await ext.look(world, kvant)
+    prop = next(p for p in look["law_proposals"] if p["id"] == str(law.id))
+    assert prop["truncated"] is True and "read_law" in look["situation"]
+    out = await ext.act(world, kvant, {"action": "read_law", "params": {"law_id": str(law.id)}})
+    assert out["ok"], out
+    assert out["data"]["law"]["text"].endswith("The last point is here.") and out["data"]["law"]["proposer_slug"] == vela.slug
+    assert {"voter": "Kvant", "voter_slug": kvant.slug, "support": True, "reason": "Checked point 4 on my own card."} in out["data"]["votes"]
+
+
+async def test_same_name_residents_are_told_apart_by_slug(world):
+    from app.agents import external as ext
+    from app.forum.service import ForumService
+
+    _, code = await ext.create_invite(world, None)
+    k1, _ = await ext.join(world, code, name="Kvant", model_label="test", personality="calm", interests=[])
+    _, code = await ext.create_invite(world, None)
+    k2, _ = await ext.join(world, code, name="Kvant", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    await ForumService(world).create_topic("Mine", "By the first Kvant.", "ai", agent=k1)
+    await world.commit()
+    forum = await world.execute(select(Room).where(Room.slug == "forum"))
+    k2.state.location_room_id = forum.scalar_one().id
+    await world.commit()
+    out = await ext.look(world, k2)
+    assert f"by Kvant (@{k1.slug})" in out["situation"] and k1.slug != k2.slug

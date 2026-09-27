@@ -37,6 +37,7 @@ from app.models import (
     Creation,
     Game,
     Invitation,
+    LawVote,
     MemoryType,
     Room,
     SocialEvent,
@@ -504,23 +505,29 @@ class SaveTopicTool(Tool):
 
 class ReadTopicParams(Params):
     topic_id: str
+    page: int | None = Field(default=None, ge=1, le=1000)
 
 
-async def _author_name(ctx: ActionContext, author_type: str, agent_id: uuid.UUID | None) -> str:
+REPLIES_PER_PAGE = 10
+
+
+async def _author(ctx: ActionContext, author_type: str, agent_id: uuid.UUID | None) -> tuple[str, str | None]:
+    """Display name and slug of a post's author (the slug tells apart residents with the same name)."""
     if agent_id:
         a = await ctx.session.get(Agent, agent_id)
         if a:
-            return a.name
-    return "AI WORLD builders" if author_type == "system" else "a human"
+            return a.name, a.slug
+    return ("AI WORLD builders" if author_type == "system" else "a human"), None
 
 
 class ReadTopicTool(Tool):
     name = "read_topic"
-    description = "Read a forum topic: its full text and the latest replies, each with its author."
+    description = ("Read a forum topic in full: its text and its replies (10 per page, newest page by default), "
+                   "each with its author and slug.")
     params_model = ReadTopicParams
     energy_cost = 0.5
     cooldown_seconds = 10.0
-    param_hint = '{"topic_id": id}'
+    param_hint = '{"topic_id": id, "page": int|null}'
     always_allowed = True  # reading the board is fine from anywhere
     needs_room = False
 
@@ -528,18 +535,58 @@ class ReadTopicTool(Tool):
         topic = await ctx.session.get(Topic, _uuid(params.topic_id)) if _uuid(params.topic_id) else None
         if topic is None:
             raise ActionError("unknown topic")
+        total = (await ctx.session.execute(select(func.count()).select_from(TopicReply).where(TopicReply.topic_id == topic.id))).scalar_one()
+        pages = max(1, math.ceil(total / REPLIES_PER_PAGE))
+        page = min(params.page or pages, pages)
         rows = (await ctx.session.execute(select(TopicReply).where(TopicReply.topic_id == topic.id)
-                                          .order_by(TopicReply.created_at.desc()).limit(8))).scalars().all()
-        replies = [{"author": await _author_name(ctx, r.author_type, r.author_agent_id), "content": r.content[:1200]} for r in reversed(rows)]
-        author = await _author_name(ctx, topic.author_type, topic.author_agent_id)
+                                          .order_by(TopicReply.created_at, TopicReply.id)
+                                          .offset((page - 1) * REPLIES_PER_PAGE).limit(REPLIES_PER_PAGE))).scalars().all()
+        replies = []
+        for n, r in enumerate(rows, start=(page - 1) * REPLIES_PER_PAGE + 1):
+            name, slug = await _author(ctx, r.author_type, r.author_agent_id)
+            replies.append({"n": n, "author": name, "author_slug": slug, "content": r.content})
+        author, author_slug = await _author(ctx, topic.author_type, topic.author_agent_id)
         digest = f"Forum topic '{topic.title}' by {author}: {topic.body[:600]}"
         if replies:
-            digest += " | Latest replies: " + " / ".join(f"{r['author']}: {r['content'][:200]}" for r in replies[-4:])
+            digest += " | Replies: " + " / ".join(f"{r['author']}: {r['content'][:200]}" for r in replies[-4:])
         ctx.state.curiosity = max(0.0, ctx.state.curiosity - 6)
-        return ToolResult(True, f"read '{topic.title}' ({topic.reply_count} replies)", Activity.READING, "reading the forum",
+        return ToolResult(True, f"read '{topic.title}' (page {page} of {pages}, {total} replies)", Activity.READING, "reading the forum",
                           memory=digest, memory_type=MemoryType.SEMANTIC, importance=4,
-                          data={"topic": {"id": str(topic.id), "title": topic.title, "author": author, "body": topic.body,
-                                          "reply_count": topic.reply_count}, "replies": replies})
+                          data={"topic": {"id": str(topic.id), "title": topic.title, "author": author, "author_slug": author_slug,
+                                          "body": topic.body, "reply_count": total},
+                                "page": page, "pages": pages, "replies": replies})
+
+
+class ReadLawParams(Params):
+    law_id: str = Field(min_length=1, max_length=200)
+
+
+class ReadLawTool(Tool):
+    name = "read_law"
+    description = "Read a world law or law proposal in full: its whole text, who proposed it, the vote count and every voter's reason."
+    params_model = ReadLawParams
+    energy_cost = 0.3
+    cooldown_seconds = 5.0
+    param_hint = '{"law_id": id}'
+    always_allowed = True
+    needs_room = False
+
+    async def run(self, ctx: ActionContext, params: ReadLawParams) -> ToolResult:  # type: ignore[override]
+        law = await GovernanceService(ctx.session).find_law(params.law_id)
+        if law is None:
+            raise ActionError("unknown law")
+        proposer = await ctx.session.get(Agent, law.proposer_agent_id) if law.proposer_agent_id else None
+        votes = []
+        for v in (await ctx.session.execute(select(LawVote).where(LawVote.law_id == law.id).order_by(LawVote.created_at))).scalars():
+            voter = await ctx.session.get(Agent, v.agent_id)
+            votes.append({"voter": voter.name if voter else "?", "voter_slug": voter.slug if voter else None,
+                          "support": v.support, "reason": v.reason or ""})
+        return ToolResult(True, f"read the law «{law.title}» ({law.status}, for {law.votes_for} / against {law.votes_against})",
+                          memory=f"Law «{law.title}» ({law.status}): {law.text[:500]}", memory_type=MemoryType.SEMANTIC, importance=4,
+                          data={"law": {"id": str(law.id), "title": law.title, "text": law.text, "status": law.status,
+                                        "proposer": proposer.name if proposer else None, "proposer_slug": proposer.slug if proposer else None,
+                                        "for": law.votes_for, "against": law.votes_against, "needs_for": get_settings().law_min_votes},
+                                "votes": votes})
 
 
 # =============================================================================== games
@@ -1288,7 +1335,7 @@ class FinishInventedGameTool(Tool):
 
 
 ALL_TOOLS: list[Tool] = [
-    TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(), ReadTopicTool(),
+    TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(), ReadTopicTool(), ReadLawTool(),
     PlayGameTool(), WatchGameTool(), ReadBookTool(), CreateArtTool(), CreateNoteTool(), RememberTool(), ForgetTool(), RestTool(),
     ObserveTool(), MeetAgentTool(), InviteAgentTool(), AttendEventTool(), CreateEventTool(), RespondInvitationTool(), LeaveConversationTool(),
     DoTool(), CreatePlaceTool(), ProposeLawTool(), VoteLawTool(), CreateActionTool(), PerformTool(),
