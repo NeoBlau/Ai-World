@@ -133,6 +133,7 @@ class AgentEngine:
         perception = await build_perception(session, agent, clock, inbox)
         decision, raw, decided_by, meta = await self._decide(session, agent, perception)
         if decision is None:  # all providers failed
+            log.warning("no provider answered", extra={"agent_id": str(agent.id), "agent": agent.name, "error": meta.get("error", "")[:300]})
             await self._mark_unavailable(session, agent, meta.get("error", "providers unavailable"))
             await event_bus.commit(session)
             return CycleResult(agent.id, "unavailable", False, "engine", "providers unavailable", 60.0)

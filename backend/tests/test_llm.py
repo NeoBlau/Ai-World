@@ -154,3 +154,18 @@ async def test_router_switches_to_backup_model_when_overloaded():
     router.persist = lambda rec: _noop()
     resp = await router.generate(REQ, provider="gemini")
     assert busy.called and backup.called and resp.model == "gemini-3.6-flash" and resp.text == "from backup"
+
+
+@respx.mock
+async def test_empty_balance_skips_provider_for_an_hour():
+    body = {"error": {"message": "You have no credits remaining. Add credits to continue.", "type": "insufficient_quota"}}
+    openai = respx.post("https://api.openai.com/v1/chat/completions").mock(return_value=httpx.Response(429, json=body))
+    respx.post(url__regex=r".*generateContent").mock(return_value=httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "gemini"}]}}]}))
+    router = LLMRouter(settings(anthropic_api_key="", ollama_base_url="", llm_fallback_chain="gemini", openai_fallback_models="gpt-4.1-mini"))
+    router.persist = lambda rec: _noop()
+    resp = await router.generate(REQ, provider="openai")
+    assert resp.provider == "gemini"
+    assert openai.call_count == 1  # no retry with backup models of the same empty account
+    assert await router.circuit_open("openai")
+    await router.generate(REQ, provider="openai")
+    assert openai.call_count == 1  # skipped while the circuit is open

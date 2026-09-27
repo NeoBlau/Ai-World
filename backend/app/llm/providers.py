@@ -21,6 +21,8 @@ from app.llm.base import (
     ProviderHealth,
 )
 
+BILLING_MARKERS = ("insufficient_quota", "no credits remaining", "credit balance is too low", "billing_hard_limit")
+# (not "exceeded your current quota": Gemini uses it for short per-minute limits too)
 OPENAI_EMBED_MODEL = "text-embedding-3-small"
 GEMINI_EMBED_MODEL = "gemini-embedding-001"
 
@@ -31,6 +33,10 @@ def _raise_for_status(provider: str, resp: httpx.Response) -> None:
     # Do not echo the response body wholesale: it can contain request details.
     snippet = resp.text[:200].replace("\n", " ")
     retryable = resp.status_code in (408, 409, 425, 429) or resp.status_code >= 500
+    low = resp.text[:2000].lower()
+    if any(m in low for m in BILLING_MARKERS):
+        # An empty balance is not an overload: retrying (or another model of the same account) will not help.
+        raise ProviderError(provider, f"HTTP {resp.status_code} (no credits): {snippet}", retryable=False, status=resp.status_code, billing=True)
     raise ProviderError(provider, f"HTTP {resp.status_code}: {snippet}", retryable=retryable, status=resp.status_code)
 
 

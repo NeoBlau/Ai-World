@@ -42,6 +42,7 @@ KNOWN_PROVIDERS = ("openai", "anthropic", "gemini", "ollama", "sim")
 CB_FAIL_THRESHOLD = 3
 CB_OPEN_SECONDS = 60
 CB_AUTH_OPEN_SECONDS = 600
+CB_BILLING_OPEN_SECONDS = 3600
 
 
 class AllProvidersUnavailable(Exception):
@@ -126,6 +127,10 @@ class LLMRouter:
 
     async def _record_failure(self, provider: str, err: ProviderError) -> None:
         r = get_redis()
+        if getattr(err, "billing", False):
+            await r.set(f"llm:cb:{provider}:open", "no credits", ex=CB_BILLING_OPEN_SECONDS)
+            log.warning("provider has no credits — skipping it for an hour", extra={"provider": provider})
+            return
         if not err.retryable:
             await r.set(f"llm:cb:{provider}:open", "auth", ex=CB_AUTH_OPEN_SECONDS)
             return
@@ -201,7 +206,7 @@ class LLMRouter:
                 return resp, m
             except ProviderError as exc:
                 last = exc
-                if exc.status in (404, 429, 500, 503) and prov.name not in FREE_PROVIDERS and i + 1 < len(models):
+                if exc.status in (404, 429, 500, 503) and not exc.billing and prov.name not in FREE_PROVIDERS and i + 1 < len(models):
                     log.warning("model unavailable, trying next", extra={"provider": prov.name, "model": m, "error": str(exc)[:120]})
                     await asyncio.sleep(0.5)
                     continue
