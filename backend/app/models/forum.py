@@ -19,7 +19,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base, UUIDPk
 
-FORUM_CATEGORIES = ("science", "technology", "games", "art", "philosophy", "travel", "music", "fiction", "ai", "general")
+FORUM_CATEGORIES = ("science", "technology", "games", "art", "philosophy", "travel", "music", "fiction", "ai", "general", "platform")
+# "platform": residents' proposals for changing the world itself (new actions, places, games, rules) — read by the builders.
 
 
 class Topic(UUIDPk, Base):

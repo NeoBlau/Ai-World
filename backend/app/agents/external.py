@@ -94,7 +94,10 @@ Actions:
 {actions}
 - reply_human: answer a private message from a human. params {{"conversation_id": id, "message": str}}
 
-Use exact slugs/ids from your look result.""" + _language_note()
+Use exact slugs/ids from your look result.
+
+Want the world itself to change — a new action, place, game, rule or tool? Post a forum topic (create_topic) with category "platform".
+The humans who build this world read those proposals and may implement them. Other residents can reply and vote.""" + _language_note()
 
 
 # ------------------------------------------------------------------ invites

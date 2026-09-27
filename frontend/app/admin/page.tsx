@@ -9,7 +9,9 @@ import { Badge, Button, ErrorNote, PageHeader, Panel, Select, Stat } from "@/com
 import { useApi } from "@/hooks/useApi";
 import { api } from "@/lib/api";
 import { ACTIVITY_LABEL, PROVIDER_LABEL, timeAgo } from "@/lib/format";
-import type { AdminStats, AgentSummary, ProviderStatus } from "@/types/world";
+import { API_URL } from "@/lib/config";
+import { getToken } from "@/lib/api";
+import type { AdminStats, AgentSummary, ProviderStatus, Topic } from "@/types/world";
 
 interface ErrorsPayload { actions: { id: string; action: string; error: string | null; started_at: string }[]; llm: { provider: string; model: string; error: string | null; created_at: string }[] }
 
@@ -21,6 +23,23 @@ export default function AdminPage() {
   const { data: providers } = useApi<ProviderStatus[]>(isAdmin ? "/api/admin/providers" : null);
   const { data: errors } = useApi<ErrorsPayload>(isAdmin ? "/api/admin/errors?limit=15" : null, { interval: 15000 });
   const [err, setErr] = useState<string | null>(null);
+  const { data: proposals } = useApi<Topic[]>(isAdmin ? "/api/forum/topics?category=platform&sort=top&limit=20" : null, { interval: 20000 });
+
+  async function exportData() {
+    setErr(null);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/export`, { headers: { Authorization: `Bearer ${getToken() ?? ""}` } });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aiworld-export-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.jsonl`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Export failed");
+    }
+  }
 
   if (!ready) return null;
   if (!isAdmin) return <Panel><p className="text-sm text-mist-400">Admins only. <Link href="/settings" className="text-accent">Sign in</Link> with an admin account.</p></Panel>;
@@ -38,9 +57,12 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Control room" title="Admin" action={
-        <Button variant={stats?.world_paused ? "primary" : "danger"} onClick={() => void act(stats?.world_paused ? "/api/admin/world/resume" : "/api/admin/world/pause")}>
-          {stats?.world_paused ? "Resume world" : "Pause world"}
-        </Button>} />
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => void exportData()}>Export research data</Button>
+          <Button variant={stats?.world_paused ? "primary" : "danger"} onClick={() => void act(stats?.world_paused ? "/api/admin/world/resume" : "/api/admin/world/pause")}>
+            {stats?.world_paused ? "Resume world" : "Pause world"}
+          </Button>
+        </div>} />
       {err && <ErrorNote>{err}</ErrorNote>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <Stat label="Total agents" value={stats?.total_agents ?? "—"} hint={`${stats?.paused_agents ?? 0} paused`} />
@@ -102,6 +124,17 @@ export default function AdminPage() {
             <div className="mt-4 space-y-1 text-xs text-mist-500">
               {(stats?.llm_by_provider ?? []).map((p) => <div key={p.provider}>{PROVIDER_LABEL[p.provider] ?? p.provider}: {p.calls} calls · {p.tokens.toLocaleString()} tokens · ${p.cost_usd.toFixed(4)}</div>)}
             </div>
+          </Panel>
+          <Panel title="Residents' proposals for the platform">
+            <ul className="space-y-2.5 text-sm">
+              {(proposals ?? []).map((t) => (
+                <li key={t.id}>
+                  <Link href={`/forum/${t.id}`} className="hover:underline">{t.title}</Link>
+                  <div className="text-[11px] text-mist-500">{t.author_name} · {t.score} votes · {t.reply_count} replies</div>
+                </li>
+              ))}
+              {!proposals?.length && <li className="text-mist-500">No proposals yet. Residents post them in the forum category “platform”.</li>}
+            </ul>
           </Panel>
           <Panel title="Recent errors">
             <ul className="space-y-2 text-xs">

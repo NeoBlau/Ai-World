@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+import json
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -168,3 +171,58 @@ async def world_resume(session: AsyncSession = Depends(db)) -> dict:
 @router.get("/providers")
 async def providers() -> list[dict]:
     return await get_router().health()
+
+
+@router.get("/export")
+async def export(since: datetime | None = None, until: datetime | None = None) -> StreamingResponse:
+    """Research export (JSON Lines): messages, agent decisions with thoughts, forum posts. One JSON object per line."""
+    from app.database.session import session_scope
+    from app.models import Conversation, Topic, TopicReply, User
+
+    async def rows() -> AsyncIterator[str]:
+        async with session_scope() as session:
+            agents = {a.id: a for a in (await session.execute(select(Agent))).scalars().unique()}
+            users = {u.id: u.display_name for u in (await session.execute(select(User))).scalars()}
+            rooms = {r.id: r.slug for r in (await session.execute(select(Room))).scalars()}
+
+            def who(agent_id=None, user_id=None) -> dict:
+                if agent_id and agent_id in agents:
+                    a = agents[agent_id]
+                    return {"kind": "agent", "name": a.name, "slug": a.slug, "provider": a.provider, "model": a.model}
+                if user_id:
+                    return {"kind": "human", "name": users.get(user_id, "human")}
+                return {"kind": "system"}
+
+            def window(col):
+                conds = []
+                if since:
+                    conds.append(col >= since)
+                if until:
+                    conds.append(col < until)
+                return conds
+
+            convs = {c.id: c for c in (await session.execute(select(Conversation))).scalars()}
+            q = select(Message).where(*window(Message.created_at)).order_by(Message.created_at)
+            for m in (await session.execute(q)).scalars():
+                conv = convs.get(m.conversation_id)
+                yield json.dumps({"type": "message", "at": m.created_at.isoformat(), "room": rooms.get(m.room_id),
+                                  "conversation_id": str(m.conversation_id) if m.conversation_id else None,
+                                  "private": bool(conv and conv.kind == "dm"), "from": who(m.sender_agent_id, m.sender_user_id),
+                                  "to": who(m.recipient_agent_id) if m.recipient_agent_id else None, "tone": m.tone, "text": m.content},
+                                 ensure_ascii=False) + "\n"
+            q = select(ActivityLog).where(*window(ActivityLog.started_at)).order_by(ActivityLog.started_at)
+            for a in (await session.execute(q)).scalars():
+                yield json.dumps({"type": "decision", "at": a.started_at.isoformat(), "agent": who(a.agent_id), "room": rooms.get(a.room_id),
+                                  "decided_by": a.decided_by, "provider": a.provider, "model": a.model, "action": a.action, "params": a.params,
+                                  "thought": a.thought, "result": a.result, "ok": a.success, "error": a.error, "latency_ms": a.latency_ms},
+                                 ensure_ascii=False) + "\n"
+            for t in (await session.execute(select(Topic).where(*window(Topic.created_at)).order_by(Topic.created_at))).scalars():
+                yield json.dumps({"type": "topic", "at": t.created_at.isoformat(), "id": str(t.id), "category": t.category, "title": t.title,
+                                  "body": t.body, "score": t.score, "author": who(t.author_agent_id, t.author_user_id)}, ensure_ascii=False) + "\n"
+            q = select(TopicReply).where(*window(TopicReply.created_at)).order_by(TopicReply.created_at)
+            for r in (await session.execute(q)).scalars():
+                yield json.dumps({"type": "reply", "at": r.created_at.isoformat(), "topic_id": str(r.topic_id), "text": r.content,
+                                  "author": who(r.author_agent_id, r.author_user_id)}, ensure_ascii=False) + "\n"
+
+    name = f"aiworld-export-{datetime.now():%Y%m%d-%H%M}.jsonl"
+    return StreamingResponse(rows(), media_type="application/x-ndjson", headers={"Content-Disposition": f'attachment; filename="{name}"'})

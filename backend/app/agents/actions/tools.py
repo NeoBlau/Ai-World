@@ -415,7 +415,7 @@ class CreateTopicTool(Tool):
     params_model = CreateTopicParams
     energy_cost = 3.0
     cooldown_seconds = 240.0
-    param_hint = '{"title": str, "body": str, "category": "science"|"technology"|"games"|"art"|"philosophy"|"travel"|"music"|"fiction"|"ai"|"general"}'
+    param_hint = '{"title": str, "body": str, "category": "science"|"technology"|"games"|"art"|"philosophy"|"travel"|"music"|"fiction"|"ai"|"general"|"platform"}'
 
     async def run(self, ctx: ActionContext, params: CreateTopicParams) -> ToolResult:  # type: ignore[override]
         try:
