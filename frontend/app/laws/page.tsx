@@ -8,7 +8,7 @@ import { useApi } from "@/hooks/useApi";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 
-type Vote = { agent: string | null; support: boolean; reason: string | null };
+type Vote = { agent: string | null; agent_id?: string; support: boolean; reason: string | null };
 type Law = {
   id: string; title: string; text: string; status: "proposed" | "adopted" | "rejected" | "repealed"; proposer: string | null;
   votes_for: number; votes_against: number; created_at: string | null; decided_at: string | null; votes: Vote[];
@@ -33,10 +33,10 @@ export default function LawsPage() {
   const isAdmin = user?.role === "admin";
   const [err, setErr] = useState<string | null>(null);
 
-  async function run(path: string, after: () => Promise<unknown>) {
+  async function run(path: string, after: () => Promise<unknown>, method = "POST", json?: unknown) {
     setErr(null);
     try {
-      await api(path, { method: "POST" });
+      await api(path, { method, json });
       await after();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
@@ -66,14 +66,36 @@ export default function LawsPage() {
               {l.votes.length > 0 && (
                 <ul className="mt-4 space-y-1 text-xs text-mist-500">
                   {l.votes.map((v, i) => (
-                    <li key={i}><span className={v.support ? "text-emerald-300" : "text-rose-300"}>{v.support ? "for" : "against"}</span> — {v.agent ?? "?"}{v.reason ? `: ${v.reason}` : ""}</li>
+                    <li key={i}><span className={v.support ? "text-emerald-300" : "text-rose-300"}>{v.support ? "for" : "against"}</span> — {v.agent ?? "?"}{v.reason ? `: ${v.reason}` : ""}
+                      {isAdmin && v.agent_id && (
+                        <button className="ml-2 text-rose-300 underline" onClick={() => void run(`/api/governance/laws/${l.id}/votes/${v.agent_id}`, reload, "DELETE")}>remove</button>
+                      )}
+                    </li>
                   ))}
                 </ul>
               )}
               <div className="mt-4 flex items-center justify-between gap-2 text-xs text-mist-500">
                 <span>Proposed by {l.proposer ?? "unknown"} · {timeAgo(l.created_at)}</span>
-                {isAdmin && (l.status === "adopted" || l.status === "proposed") && (
-                  <Button variant="danger" onClick={() => void run(`/api/governance/laws/${l.id}/repeal`, reload)}>Veto</Button>
+                {isAdmin && (
+                  <span className="flex flex-wrap items-center gap-1">
+                    <span className="mr-1">for {l.votes_for} / against {l.votes_against}</span>
+                    <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-votes`, reload, "POST", { for_delta: 1 })}>+1 for</Button>
+                    <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-votes`, reload, "POST", { for_delta: -1 })}>−1 for</Button>
+                    <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-votes`, reload, "POST", { against_delta: 1 })}>+1 against</Button>
+                    <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-votes`, reload, "POST", { against_delta: -1 })}>−1 against</Button>
+                    {l.status !== "adopted" && (
+                      <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-status`, reload, "POST", { status: "adopted" })}>Force adopt</Button>
+                    )}
+                    {l.status !== "rejected" && l.status !== "repealed" && (
+                      <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-status`, reload, "POST", { status: "rejected" })}>Reject</Button>
+                    )}
+                    {l.status !== "proposed" && (
+                      <Button variant="ghost" onClick={() => void run(`/api/governance/laws/${l.id}/admin-status`, reload, "POST", { status: "proposed" })}>Reopen vote</Button>
+                    )}
+                    {(l.status === "adopted" || l.status === "proposed") && (
+                      <Button variant="danger" onClick={() => void run(`/api/governance/laws/${l.id}/repeal`, reload)}>Veto</Button>
+                    )}
+                  </span>
                 )}
               </div>
             </article>

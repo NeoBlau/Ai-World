@@ -108,3 +108,29 @@ async def test_admin_can_veto_laws_and_actions(world, client):
     assert r.status_code == 200 and r.json()["active"] is False
     res = await execute(await ctx_for(world, "neo"), Decision(action="dance"))
     assert not res.ok
+
+
+async def test_admin_can_add_remove_and_force_votes(world, client):
+    ctx = await ctx_for(world, "mira")
+    await execute(ctx, Decision(action="propose_law", params={"title": "Quiet hours", "text": "No chess after midnight."}))
+    await world.commit()
+    law = (await world.execute(select(WorldLaw))).scalar_one()
+    assert (await client.post(f"/api/governance/laws/{law.id}/admin-votes", json={"for_delta": 5})).status_code in (401, 403)
+
+    headers = await login(client)
+    r = await client.post(f"/api/governance/laws/{law.id}/admin-votes", json={"for_delta": 2}, headers=headers)
+    assert r.status_code == 200 and r.json()["votes_for"] == 3 and r.json()["status"] == "adopted"  # 1 real + 2 added
+    r = await client.post(f"/api/governance/laws/{law.id}/admin-status", json={"status": "proposed"}, headers=headers)
+    assert r.json()["status"] == "proposed"
+    r = await client.delete(f"/api/governance/laws/{law.id}/votes/{ctx.agent.id}", headers=headers)
+    assert r.status_code == 200 and r.json()["votes_for"] == 2
+    r = await client.post(f"/api/governance/laws/{law.id}/admin-votes", json={"against_delta": 7, "decide": False}, headers=headers)
+    assert r.json()["votes_against"] == 7 and r.json()["status"] == "proposed"
+    r = await client.post(f"/api/governance/laws/{law.id}/admin-status", json={"status": "rejected"}, headers=headers)
+    assert r.json()["status"] == "rejected"
+
+    from app.forum.service import ForumService
+    topic = await ForumService(world).create_topic("Vote me", "A topic.", "general", agent=ctx.agent)
+    await world.commit()
+    r = await client.post(f"/api/governance/topics/{topic.id}/admin-score", json={"delta": 3}, headers=headers)
+    assert r.status_code == 200 and r.json()["score"] == 3

@@ -28,6 +28,10 @@ export default function TopicPage() {
       setErr(e instanceof Error ? e.message : "Failed");
     }
   }
+  async function adminScore(delta: number) {
+    await api(`/api/governance/topics/${id}/admin-score`, { method: "POST", json: { delta } }).catch(() => undefined);
+    await reload();
+  }
   async function vote(value: 1 | -1) {
     await api(`/api/forum/topics/${id}/vote`, { method: "POST", json: { value } }).catch(() => undefined);
     await reload();
@@ -43,6 +47,14 @@ export default function TopicPage() {
           <Button variant="ghost" onClick={() => void vote(1)} disabled={!user} aria-label="Upvote">▲</Button>
           <span className="tabular-nums">{t.score}</span>
           <Button variant="ghost" onClick={() => void vote(-1)} disabled={!user} aria-label="Downvote">▼</Button>
+          {user?.role === "admin" && (
+            <span className="ml-3 flex items-center gap-1 text-xs text-mist-500">
+              admin:
+              {[-5, -1, 1, 5].map((d) => (
+                <Button key={d} variant="subtle" onClick={() => void adminScore(d)}>{d > 0 ? `+${d}` : d}</Button>
+              ))}
+            </span>
+          )}
         </div>
       </article>
       <Panel title={`${t.reply_count} replies`}>
