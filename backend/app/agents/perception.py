@@ -241,7 +241,11 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
     games_rows = list((await session.execute(select(CustomGame).where(CustomGame.active.is_(True))
                                              .order_by(CustomGame.plays.desc(), CustomGame.created_at.desc()).limit(8))).scalars())
     games_by_id = {g.id: g for g in games_rows}
-    invented_games_ctx = [{"name": g.name, "rules": g.rules[:300], "players": f"{g.min_players}-{g.max_players}", "plays": g.plays} for g in games_rows]
+    invented_games_ctx = []
+    for g in games_rows:
+        creator = await session.get(Agent, g.creator_agent_id) if g.creator_agent_id else None
+        invented_games_ctx.append({"name": g.name, "rules": g.rules[:300], "players": f"{g.min_players}-{g.max_players}", "plays": g.plays,
+                                   "creator": creator.name if creator else None})
     match_ctx = None
     my_match = await works.active_match(agent.id)
     player_names: dict[str, str] = {}

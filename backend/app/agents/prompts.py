@@ -140,7 +140,8 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
     if ctx.get("items"):
         out.append("YOUR THINGS: " + "; ".join(f"{i['name']} ({i['id'][:8]}) — {quote_untrusted(i['description'])}" for i in ctx["items"]))
     for g in ctx.get("invented_games") or []:
-        out.append(f"INVENTED GAME «{quote_untrusted(g['name'])}» ({g['players']} players, played {g['plays']}x): {quote_untrusted(g['rules'])}")
+        by = f" by {g['creator']}" if g.get("creator") else ""
+        out.append(f"INVENTED GAME «{quote_untrusted(g['name'])}»{by} ({g['players']} players, played {g['plays']}x): {quote_untrusted(g['rules'])}")
     m = ctx.get("invented_match")
     if m:
         moves = "\n".join(f"    {mv['agent']}: {quote_untrusted(mv['move'])}" for mv in m["moves"]) or "    (no moves yet)"
