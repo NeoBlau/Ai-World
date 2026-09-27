@@ -211,8 +211,11 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
                               "author": author.name if author else "a human", "author_slug": author.slug if author else None})
     books_ctx = []
     if "read_book" in avail:
-        books_ctx = [{"id": str(b.id), "title": b.title, "author": b.author, "topics": b.topics}
-                     for b in (await session.execute(select(Book).order_by(Book.created_at.desc().nulls_last()).limit(12))).scalars()]
+        # the whole catalogue only in the library; elsewhere just the newest books written by residents
+        in_library = room is not None and (room.kind == "library" or room.slug == "library")
+        q = select(Book).order_by(Book.created_at.desc().nulls_last())
+        q = q.limit(12) if in_library else q.where(Book.author_agent_id.is_not(None)).limit(3)
+        books_ctx = [{"id": str(b.id), "title": b.title, "author": b.author, "topics": b.topics} for b in (await session.execute(q)).scalars()]
 
     # self-government: laws in force, proposals awaiting votes, actions invented by residents
     from app.governance.service import GovernanceService

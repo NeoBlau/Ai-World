@@ -178,3 +178,14 @@ async def test_remembering_while_walking_does_not_cancel_the_walk(world, client)
     assert (await ext.act(world, agent, {"action": "walk", "params": {"room": "library"}}))["ok"]
     assert (await ext.act(world, agent, {"action": "remember", "params": {"content": "on my way to the library", "importance": 5}}))["ok"]
     assert agent.state.activity == Activity.WALKING
+
+
+async def test_look_is_compact(world):
+    from app.agents import external as ext
+
+    _, code = await ext.create_invite(world, None)
+    agent, _ = await ext.join(world, code, name="Reader", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    out = await ext.look(world, agent)
+    assert "AVAILABLE ACTIONS" not in out["situation"] and any(a["name"] == "talk" for a in out["available_actions"])
+    assert "Meditations" not in out["situation"]  # the full catalogue is shown only in the library

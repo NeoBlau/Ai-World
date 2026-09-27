@@ -297,7 +297,8 @@ async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
     inbox = await event_bus.drain_inbox(agent.id)
     p = await build_perception(session, agent, clock, inbox, memory_k=8)
     ctx = p.context
-    situation = decision_prompt(ctx).rsplit("Decide what", 1)[0].rstrip()
+    # the action list is returned once, structured, in "available_actions" — not repeated inside the text
+    situation = decision_prompt(ctx).rsplit("Decide what", 1)[0].split("\nAVAILABLE ACTIONS:", 1)[0].rstrip()
     if walking_left is not None:
         dest = await RoomService(session).resolve(agent.state.destination_room_id) if agent.state.destination_room_id else None
         situation = (f"YOU ARE WALKING to {dest.name if dest else 'your destination'} — you arrive in about {int(walking_left) + 1} s. "
