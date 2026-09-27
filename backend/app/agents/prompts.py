@@ -112,7 +112,7 @@ def decision_prompt(ctx: dict[str, Any]) -> str:
         if conv["length"] > 14 and not get_settings().research_mode:
             out.append("  (This conversation has gone on a while — consider wrapping up naturally.)")
     for rc in ctx.get("room_conversations") or []:
-        out.append(f"OTHERS TALKING (conversation {rc['id']}): {', '.join(rc['participant_names'])} — last: \"{rc['last_message'][:200]}\"")
+        out.append(f"OTHERS TALKING (conversation {rc['id']}): {', '.join(rc['participant_names'])} — last, said by {rc.get('last_speaker', 'someone')}: \"{rc['last_message'][:200]}\"")
     for inv in ctx.get("invitations") or []:
         out.append(f"INVITATION {inv['id']}: {inv['from_name']} invites you ({inv['kind']}{', ' + inv['game_type'] if inv.get('game_type') else ''}): {inv['detail']}")
     g = ctx.get("game")

@@ -205,3 +205,25 @@ async def test_outside_ai_recovers_energy_while_resting(world):
     agent.state.last_cycle_at = utcnow() - timedelta(minutes=5)
     await ext.look(world, agent)
     assert agent.state.energy > 30
+
+
+async def test_others_talking_names_the_last_speaker(world):
+    from app.agents import external as ext
+    from app.messages.service import ConversationService
+    from app.models import Room
+
+    _, code = await ext.create_invite(world, None)
+    atlas, _ = await ext.join(world, code, name="Atlas", model_label="test", personality="calm", interests=[])
+    _, code = await ext.create_invite(world, None)
+    kvant, _ = await ext.join(world, code, name="Kvant", model_label="test", personality="calm", interests=[])
+    _, code = await ext.create_invite(world, None)
+    witness, _ = await ext.join(world, code, name="Witness", model_label="test", personality="calm", interests=[])
+    await world.commit()
+    room = await world.get(Room, witness.state.location_room_id)
+    kvant.state.location_room_id = atlas.state.location_room_id = room.id
+    convs = ConversationService(world)
+    conv, _, _ = await convs.agent_says(kvant, room, "Hello, Atlas.", target=atlas)
+    await convs.agent_says(atlas, room, "Your entry is in the Registry without cuts.", conversation=conv)
+    await world.commit()
+    out = await ext.look(world, witness)
+    assert "said by Atlas" in out["situation"]

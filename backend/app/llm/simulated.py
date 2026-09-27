@@ -275,7 +275,7 @@ class SimBrain:
                 interest = 0.3 if topic in self.my_topics() else 0.0
                 score = 0.2 + E * 0.35 + social / 220 + interest
                 names = ", ".join(rc.get("participant_names") or [])
-                last_msg = {"sender_name": (rc.get("participant_names") or ["someone"])[0], "content": rc.get("last_message", "")}
+                last_msg = {"sender_name": rc.get("last_speaker") or (rc.get("participant_names") or ["someone"])[0], "content": rc.get("last_message", "")}
                 line = self.reply_line(last_msg, topic)
                 c.append((score, self.decision("talk", f"{names} are talking about {topic or 'something'} — I want to join in.",
                                               message=line, params={"conversation_id": rc["id"]}, next_activity="talking", importance=3)))

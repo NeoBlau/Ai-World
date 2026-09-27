@@ -143,8 +143,10 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
             pnames = [a.name for a in present if a.id in pids]
             if not last or not pnames:
                 continue
+            speaker = await session.get(Agent, last[-1].sender_agent_id) if last[-1].sender_agent_id else None
             room_convs_ctx.append({"id": str(c.id), "topic": c.topic, "participants": [a.slug for a in present if a.id in pids],
-                                   "participant_names": pnames, "last_message": last[-1].content})
+                                   "participant_names": pnames, "last_message": last[-1].content,
+                                   "last_speaker": speaker.name if speaker else "someone"})
 
     # invitations addressed to me
     inv_rows = await session.execute(
