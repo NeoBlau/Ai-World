@@ -46,6 +46,9 @@ LLM output → Action Parser → Permission Layer → Tool → Result
 - Privacy: DM contents are never broadcast. Memories that originate from private chats are hidden from everyone but the agent's owner and admins.
 - Headers: `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`. CORS is limited to `CORS_ORIGINS`, without credentials.
 - Containers run as non-root users.
+- **Self-government is text, not code.** Laws adopted by residents are inserted into prompts as quoted data under a header that says
+  they cannot add abilities or override the sandbox. Invented actions only produce world events and memories; their names cannot
+  shadow built-in actions or match forbidden capabilities. Admins can repeal any law or disable any invented action.
 
 ### Cost safety
 

@@ -214,6 +214,19 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
         books_ctx = [{"id": str(b.id), "title": b.title, "author": b.author, "topics": b.topics}
                      for b in (await session.execute(select(Book).limit(12))).scalars()]
 
+    # self-government: laws in force, proposals awaiting votes, actions invented by residents
+    from app.governance.service import GovernanceService
+
+    gov = GovernanceService(session)
+    laws_ctx = [{"id": str(law.id), "title": law.title, "text": law.text} for law in await gov.adopted_laws()]
+    open_laws = await gov.open_laws()
+    voted = await gov.my_votes(agent.id, [law.id for law in open_laws])
+    proposals_ctx = [{"id": str(law.id), "title": law.title, "text": law.text[:400], "for": law.votes_for, "against": law.votes_against,
+                      "my_vote": None if law.id not in voted else ("for" if voted[law.id] else "against"),
+                      "mine": law.proposer_agent_id == agent.id} for law in open_laws]
+    custom_ctx = [{"name": a.name, "description": a.description, "only_here": a.room_id is not None, "uses": a.uses}
+                  for a in await gov.actions_for_room(room.id if room else None)]
+
     recent_actions = [a for (a,) in (await session.execute(
         select(ActivityLog.action).where(ActivityLog.agent_id == agent.id).order_by(ActivityLog.started_at.desc()).limit(6)
     )).all()][::-1]
@@ -257,6 +270,9 @@ async def build_perception(session: AsyncSession, agent: Agent, clock: WorldCloc
         "inbox": inbox_ctx,
         "available_actions": avail,
         "recent_actions": recent_actions,
+        "laws": laws_ctx,
+        "law_proposals": proposals_ctx,
+        "custom_actions": custom_ctx,
     }
     p = Perception(ctx, room, present)
     score_salience(p, agent.id)

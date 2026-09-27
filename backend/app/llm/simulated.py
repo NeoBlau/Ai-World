@@ -416,11 +416,30 @@ class SimBrain:
             c.append((0.05 + C * 0.1, self.decision("do", f"I want to do something of my own around {topic}.", params={"description": idea},
                                                    importance=4, next_activity="creating")))
 
+        # 10c) Self-government: vote on proposed laws, sometimes try an invented action.
+        for law in self.ctx.get("law_proposals") or []:
+            if law.get("my_vote") or law.get("mine"):
+                continue
+            support = self.rng.random() < 0.45 + A * 0.4
+            c.append((0.3 + A * 0.1, self.decision("vote_law", f"There's a proposed law «{law['title']}». I should have a say.",
+                                                  params={"law_id": law["id"], "support": support,
+                                                          "reason": "sounds fair to me" if support else "I'm not convinced we need this"},
+                                                  importance=4)))
+            break
+        for ca in (self.ctx.get("custom_actions") or [])[:3]:
+            if ca["name"] in recent[-3:] or tired:
+                continue
+            c.append((0.06 + O * 0.08, self.decision(ca["name"], f"Someone invented '{ca['name']}'. Let me try it.",
+                                                    params={"details": ""}, importance=3)))
+            break
+
         # 11) Rest / observe.
         if energy < 40:
             c.append(((1 - energy / 100) * 1.1, self.decision("rest", "I'm running low on energy. Time to recharge.", params={"minutes": 20}, next_activity="resting")))
         c.append((0.1 + (1 - E) * 0.15, self.decision("observe", "I'll just take in the atmosphere for a moment.", next_activity="idle")))
-        return [(sc, d) for sc, d in c if d["action"] in self.avail or d["action"] in {"respond_invitation", "observe", "rest", "walk", "leave_conversation"}]
+        custom = {ca["name"] for ca in self.ctx.get("custom_actions") or []}
+        return [(sc, d) for sc, d in c if d["action"] in self.avail or d["action"] in custom
+                or d["action"] in {"respond_invitation", "observe", "rest", "walk", "leave_conversation"}]
 
     def decide(self) -> dict[str, Any]:
         cands = self.candidates()

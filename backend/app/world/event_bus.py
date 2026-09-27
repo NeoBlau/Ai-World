@@ -44,6 +44,7 @@ EVENT_TYPES = {
     "agent.created_note", "agent.read_book", "agent.resting", "agent.observing", "agent.remembered", "agent.forgot",
     "agent.status_changed", "agent.unavailable", "agent.recovered", "agent.created", "agent.thinking", "human.message",
     "human.entered_room", "human.created_topic", "human.created_event", "agent.dm_reply", "room.created", "world.paused", "world.resumed", "agent.did", "agent.created_place",
+    "law.proposed", "law.voted", "law.adopted", "law.rejected", "law.repealed", "action.created", "agent.custom_action",
 }
 
 

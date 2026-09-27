@@ -25,6 +25,7 @@ from app.core.time import utcnow
 from app.events.service import EventError, EventService
 from app.forum.service import ForumError, ForumService
 from app.games.service import GAME_TYPES, GameError, GameService
+from app.governance.service import GovernanceError, GovernanceService
 from app.memory.service import MemoryService
 from app.messages.service import ConversationService
 from app.models import (
@@ -940,9 +941,143 @@ class CreatePlaceTool(Tool):
                           memory=f"I built a new place called {room.name}: {room.description[:200]}", importance=7, data={"room": room.slug})
 
 
+# =============================================================================== self-government
+class ProposeLawParams(Params):
+    title: str = Field(min_length=3, max_length=160)
+    text: str = Field(min_length=5, max_length=1500)
+
+
+class ProposeLawTool(Tool):
+    name = "propose_law"
+    description = "Propose a law of the world. If residents vote for it, it becomes part of everyone's instructions."
+    params_model = ProposeLawParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 2.0
+    cooldown_seconds = 600.0
+    param_hint = '{"title": str, "text": str}'
+
+    async def run(self, ctx: ActionContext, params: ProposeLawParams) -> ToolResult:  # type: ignore[override]
+        try:
+            law = await GovernanceService(ctx.session).propose_law(ctx.agent, params.title, params.text or ctx.decision.get("message") or "",
+                                                                   world_time=ctx.world_time)
+        except GovernanceError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"proposed the law «{law.title}»", Activity.CREATING, "drafting a law",
+                          memory=f"I proposed a world law «{law.title}»: {law.text[:300]}", importance=6, data={"law_id": str(law.id)})
+
+
+class VoteLawParams(Params):
+    law_id: str = Field(min_length=1, max_length=200)
+    support: bool = True
+    reason: str = Field(default="", max_length=500)
+
+
+class VoteLawTool(Tool):
+    name = "vote_law"
+    description = "Vote for (support=true) or against (support=false) a proposed world law."
+    params_model = VoteLawParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 0.3
+    param_hint = '{"law_id": id, "support": true|false, "reason": str}'
+
+    async def run(self, ctx: ActionContext, params: VoteLawParams) -> ToolResult:  # type: ignore[override]
+        gov = GovernanceService(ctx.session)
+        law = await gov.find_law(params.law_id)
+        if law is None:
+            raise ActionError("unknown law")
+        try:
+            await gov.vote(ctx.agent, law, params.support, params.reason or None, world_time=ctx.world_time)
+        except GovernanceError as exc:
+            raise ActionError(str(exc)) from exc
+        side = "for" if params.support else "against"
+        await event_bus.emit(ctx.session, "law.voted", summary=f"{ctx.agent.name} voted {side} «{law.title}» ({law.votes_for}:{law.votes_against}).",
+                             agent_id=ctx.agent.id, payload={"agent_name": ctx.agent.name, "law_id": str(law.id), "title": law.title,
+                                                              "support": params.support, "reason": params.reason[:300], "status": law.status},
+                             importance=3, scope="none", world_time=ctx.world_time)
+        outcome = f" — it is now {law.status}" if law.status != "proposed" else ""
+        return ToolResult(True, f"voted {side} «{law.title}»{outcome}", memory=f"I voted {side} the law «{law.title}»"
+                          f"{': ' + params.reason[:200] if params.reason else ''}{outcome}.", importance=4, data={"status": law.status})
+
+
+class CreateActionParams(Params):
+    name: str = Field(min_length=3, max_length=40)
+    description: str = Field(min_length=5, max_length=600)
+    only_here: bool = False
+
+
+class CreateActionTool(Tool):
+    name = "create_action"
+    description = "Invent a new action (e.g. 'stargaze', 'hold_trial'). It appears in everyone's list and anyone can perform it."
+    params_model = CreateActionParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 2.0
+    cooldown_seconds = 300.0
+    param_hint = '{"name": "snake_case", "description": str, "only_here": bool}'
+
+    async def run(self, ctx: ActionContext, params: CreateActionParams) -> ToolResult:  # type: ignore[override]
+        room = ctx.room if params.only_here else None
+        try:
+            action = await GovernanceService(ctx.session).create_action(ctx.agent, params.name, params.description, room=room, world_time=ctx.world_time)
+        except GovernanceError as exc:
+            raise ActionError(str(exc)) from exc
+        return ToolResult(True, f"invented the action '{action.name}'", Activity.CREATING, f"inventing '{action.name}'",
+                          memory=f"I invented a new action '{action.name}': {action.description[:300]}", importance=6, data={"custom_action": action.name})
+
+
+class PerformParams(Params):
+    name: str = Field(min_length=1, max_length=60)
+    details: str = Field(default="", max_length=1000)
+    with_agents: list[str] = Field(default_factory=list, max_length=6)
+
+
+class PerformTool(Tool):
+    """Performs an action invented by a resident. Models may also name the custom action directly."""
+
+    name = "perform"
+    description = "Perform an action invented by residents (see 'Actions invented by residents')."
+    params_model = PerformParams
+    always_allowed = True
+    needs_room = False
+    energy_cost = 1.0
+    param_hint = '{"name": custom_action, "details": str, "with_agents": [slug, ...]}'
+
+    async def run(self, ctx: ActionContext, params: PerformParams) -> ToolResult:  # type: ignore[override]
+        action = await GovernanceService(ctx.session).get_action(params.name)
+        if action is None:
+            raise ActionError(f"no such invented action '{params.name}'")
+        if action.room_id is not None and (ctx.room is None or ctx.room.id != action.room_id):
+            room = await ctx.session.get(Room, action.room_id)
+            raise PermissionDenied(f"'{action.name}' can only be done in {room.name if room else 'its place'}")
+        details = clean_text(params.details or ctx.decision.get("message") or "", 1000)
+        others: list[Agent] = []
+        for ref in params.with_agents:
+            a = await ctx.resolve_agent(ref)
+            if a is not None and a not in others:
+                others.append(a)
+        action.uses += 1
+        with_names = f" (with {', '.join(a.name for a in others)})" if others else ""
+        text = f"{action.name}{': ' + details if details else ''}"
+        await event_bus.emit(ctx.session, "agent.custom_action", summary=f"{ctx.agent.name} — {text[:300]}{with_names}", agent_id=ctx.agent.id,
+                             room_id=ctx.room.id if ctx.room else None,
+                             payload={"agent_name": ctx.agent.name, "action": action.name, "action_description": action.description,
+                                      "details": details, "with": [a.name for a in others], "room_name": ctx.room.name if ctx.room else None},
+                             importance=3.5, targets=[a.id for a in others] or None, world_time=ctx.world_time)
+        mem = MemoryService(ctx.session)
+        for a in others:
+            await mem.store_memory(a.id, f"{ctx.agent.name} did '{text[:400]}' with me.", MemoryType.EPISODIC, importance=4,
+                                   related_agent_id=ctx.agent.id, room_id=ctx.room.id if ctx.room else None, source="action",
+                                   world_time=ctx.world_time)
+        return ToolResult(True, text[:120], Activity.CREATING, text[:200], memory=f"I did '{text[:500]}'{with_names}.",
+                          importance=float(ctx.decision.get("importance") or 4), related_agent_id=others[0].id if len(others) == 1 else None,
+                          data={"custom_action": action.name})
+
+
 ALL_TOOLS: list[Tool] = [
     TalkTool(), WalkTool(), JoinRoomTool(), LeaveRoomTool(), CreateTopicTool(), ReplyTopicTool(), VoteTopicTool(), SaveTopicTool(),
     PlayGameTool(), WatchGameTool(), ReadBookTool(), CreateArtTool(), CreateNoteTool(), RememberTool(), ForgetTool(), RestTool(),
     ObserveTool(), MeetAgentTool(), InviteAgentTool(), AttendEventTool(), CreateEventTool(), RespondInvitationTool(), LeaveConversationTool(),
-    DoTool(), CreatePlaceTool(),
+    DoTool(), CreatePlaceTool(), ProposeLawTool(), VoteLawTool(), CreateActionTool(), PerformTool(),
 ]

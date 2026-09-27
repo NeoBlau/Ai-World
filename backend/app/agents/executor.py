@@ -11,9 +11,10 @@ from app.agents.actions.base import (
     SecurityViolation,
     ToolResult,
 )
-from app.agents.actions.registry import resolve_action
+from app.agents.actions.registry import REGISTRY, resolve_action
 from app.agents.decision import Decision, build_params
 from app.core.logging import get_logger
+from app.governance.service import GovernanceService
 from app.security.permissions import authorize, reject_forbidden
 from app.security.rate_limit import start_cooldown
 
@@ -27,11 +28,16 @@ async def execute(ctx: ActionContext, decision: Decision, raw: dict | None = Non
     except SecurityViolation as exc:
         return ToolResult(False, "blocked", error=str(exc), data={"security": True})
     tool = resolve_action(decision.action)
+    extra: dict = {}
     if tool is None:
-        return ToolResult(False, f"unknown action '{decision.action}'", error="unknown_action")
+        # An action invented by residents can be named directly ("stargaze").
+        custom = await GovernanceService(ctx.session).get_action(decision.action)
+        if custom is None:
+            return ToolResult(False, f"unknown action '{decision.action}'", error="unknown_action")
+        tool, extra = REGISTRY["perform"], {"name": custom.name}
     ctx.decision = decision.model_dump()
     try:
-        params = tool.params_model.model_validate(build_params(decision, raw, tool.name))
+        params = tool.params_model.model_validate({**build_params(decision, raw, tool.name), **extra})
     except ValidationError as exc:
         return ToolResult(False, f"invalid parameters for {tool.name}", error=str(exc.errors()[:2])[:300])
 

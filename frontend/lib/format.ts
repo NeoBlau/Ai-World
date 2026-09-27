@@ -47,6 +47,8 @@ export function eventGlyph(type: string): string {
   if (type.startsWith("event") || type.includes("event")) return "✦";
   if (type.includes("art") || type.includes("note") || type === "agent.did") return "✧";
   if (type === "agent.created_place") return "⌂";
+  if (type.startsWith("law.")) return "⚖";
+  if (type === "action.created" || type === "agent.custom_action") return "✧";
   if (type.includes("book")) return "❏";
   if (type.startsWith("human")) return "◉";
   if (type.includes("invit")) return "✉";

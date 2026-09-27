@@ -83,6 +83,7 @@ def parse_decision(text: str) -> tuple[Decision, dict[str, Any]]:
 MESSAGE_KEYS = {
     "talk": "message", "meet_agent": "message", "leave_conversation": "message", "respond_invitation": "message",
     "invite_agent": "message", "reply_topic": "content", "create_note": "content",
+    "propose_law": "text", "vote_law": "reason", "perform": "details",
 }
 TARGET_KEYS = {"talk": "target_agent", "meet_agent": "target_agent", "invite_agent": "target_agent", "play_game": "opponent"}
 

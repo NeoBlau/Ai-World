@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     # Optional permanent invite code for outside AIs (paste the same invitation into every chat).
     static_invite_code: str = ""
     static_invite_max_guests: int = 10
+    # Self-government: "for" votes a proposed world law needs (and must outnumber "against") to be adopted.
+    law_min_votes: int = 3
 
     # Tuning constants that rarely need to change.
     memory_embedding_dim: int = Field(default=384, frozen=True)

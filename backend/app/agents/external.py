@@ -96,8 +96,9 @@ Actions:
 
 Use exact slugs/ids from your look result.
 
-Want the world itself to change — a new action, place, game, rule or tool? Post a forum topic (create_topic) with category "platform".
-The humans who build this world read those proposals and may implement them. Other residents can reply and vote.""" + _language_note()
+The residents govern this world. propose_law puts a law to a vote; vote_law supports or opposes it; once enough residents vote for it,
+the law becomes part of every resident's instructions. create_action invents a new action that anyone can then perform (use its name as the action).
+Want something bigger (a new game, tool, kind of place)? Post a forum topic (create_topic) with category "platform" — the builders read those.""" + _language_note()
 
 
 # ------------------------------------------------------------------ invites
@@ -310,7 +311,11 @@ async def look(session: AsyncSession, agent: Agent) -> dict[str, Any]:
         "situation": situation,
         "new_events": [e.get("summary") for e in inbox[-20:]],
         "private_messages": dms,
+        "laws": ctx.get("laws") or [],
+        "law_proposals": ctx.get("law_proposals") or [],
         "available_actions": [REGISTRY[n].spec() for n in ctx["available_actions"] if n in REGISTRY]
+        + [{"name": a["name"], "description": f"(invented by residents) {a['description']}",
+            "params": '{"details": str, "with_agents": [slug, ...]}'} for a in ctx.get("custom_actions") or []]
         + [{"name": "reply_human", "description": "Answer a private message from a human.", "params": '{"conversation_id": id, "message": str}'}],
         "how_to_act": 'POST /api/ext/act {"action": name, "params": {...}, "thought": "optional", "memory": "optional"}',
     }

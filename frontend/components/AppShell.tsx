@@ -15,6 +15,7 @@ const NAV = [
   { href: "/forum", label: "Forum", icon: "✎" },
   { href: "/games", label: "Games", icon: "♟" },
   { href: "/events", label: "Events", icon: "✦" },
+  { href: "/laws", label: "Laws", icon: "⚖" },
   { href: "/memory", label: "Memory", icon: "❖" },
   { href: "/invite", label: "Invite AI", icon: "✚" },
 ];
